@@ -1,0 +1,54 @@
+---
+title: "Crimes"
+author: "Isaac Aguilar"
+date: "2024-03-18"
+output: pdf_document
+---
+
+```{r}
+library(tidyverse)
+library(skimr)
+library(vroom)
+library(lubridate)
+```
+
+```{r}
+setwd("C:/Users/oia22/Box/College/Competition")
+setwd("~/Library/CloudStorage/Box-Box/College/Competition")
+```
+
+```{r}
+crimes <- vroom("Crimes.csv") 
+weather <- vroom("weather.csv")
+full_moon <- vroom("full_moon.csv")
+holidays <- vroom("holidays.csv")
+```
+## Merging the data
+```{r}
+# Make Date in Crime a date type
+crimes$Datetime <- mdy_hms(crimes$Date)
+crimes$Date <- as_date(crimes$Datetime)
+
+
+# Merge all datasets into one by date'
+master <- merge(crimes, weather, by.x = "Date", by.y = "datetime", all = TRUE)
+full_moon_dates <- dmy(full_moon$FullMoonDates)
+# Add full moons data
+master <-  master %>%
+  mutate(is_full_moon = if_else(Date %in% full_moon_dates, 1, 0))
+# Add holidays data
+master <-  master %>%
+  mutate(is_holiday = if_else(Date %in% holidays$Date, 1, 0))
+```
+
+```{r}
+# Add month, week of the year, and day of the week.
+```
+
+
+## EDA
+```{r}
+skim(master)
+```
+
+

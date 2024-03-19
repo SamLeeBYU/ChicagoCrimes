@@ -1,0 +1,151 @@
+---
+title: "Competition Code"
+author: "Jeffry Troll"
+format: pdf
+editor: visual
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse) # Data Wrangling and plotting
+library(vroom) # Read Data
+library(patchwork) # Combine multiple plots in one visualization
+library(tinytex)
+library(tidyverse)
+library(car)
+library(corrplot)
+library(vcd)
+library(MASS)
+library(GGally)
+library(lmtest)
+library(multcomp)
+library(nlme)
+library(mvtnorm)
+library(forecast)
+library(lubridate)
+data <- vroom("crimes_cleaned.csv")
+```
+
+## Exploratory Data Analysis
+
+```{r}
+data
+```
+
+1.  Create column of Violent Crime
+
+```{r}
+
+allcrimes = sort(data$`Primary Type`) %>% unique()
+violence.key <- c(0,1,1,1,0,1,0,1,0,0,0,1,1,0,1,1,0,0,0,0,
+                  0,0,0,0,0,0,0,0,0,0,1,0,0,0,0)
+mapping <- setNames(seq_along(unique(allcrimes)), unique(allcrimes))
+violence.key <- c(0,1,1,1,0,1,0,1,0,0,0,1,1,0,1,1,0,0,0,0,
+                  0,0,0,0,0,0,0,0,0,0,1,0,0,0,0)
+
+data$Violent <- violence.key[unname(mapping[data$`Primary Type`])]
+```
+
+2.  Count Violent Crime by day
+
+```{r}
+# remove preciptype, conditions, icon, description
+data <- subset(data, select = -c(preciptype, conditions, icon, description,`Primary Type`,severerisk,windgust))
+# change to binary, Arrest and Domestic
+data <- data %>%
+  mutate(Arrest = ifelse(is.na(Arrest), NA, as.integer(Arrest)),
+         Domestic = ifelse(is.na(Domestic), NA, as.integer(Domestic)))
+
+# categorical Location Description
+data <- data %>%
+  mutate(`Location Description` = factor(`Location Description`))
+```
+
+```{r}
+# count by day
+crimes <- data %>%
+  mutate(Date = as.Date(Date)) %>%
+  group_by(Date) %>%
+  summarise(Count = n(),
+            Violent = sum(Violent),
+            Arrest = sum(Arrest),
+            Domestic = sum(Domestic),
+            `Community Area` = mean(`Community Area`),
+            moonphase = mean(moonphase),
+            solarenergy = mean(solarenergy),
+            solarradiation = mean(solarradiation),
+            visibility = mean(visibility),
+            cloudcover = mean(cloudcover),
+            sealevelpressure = mean(sealevelpressure),
+            winddir = mean(winddir),
+            windspeed = mean(windspeed),
+            snowdepth = mean(snowdepth),
+            snow = mean(snow),
+            precip = mean(precip),
+            humidity = mean(humidity),
+            dew = mean(dew),
+            feelslike = mean(feelslike),
+            temp = mean(temp)) %>%
+  ungroup()
+```
+
+```{r}
+# count by day
+crimes
+```
+
+```{r}
+nan_values <- is.na(crimes)
+nan_counts <- colSums(nan_values)
+print(nan_counts)
+
+crimes <- crimes %>%
+  mutate_if(is.double, function(x) ifelse(is.na(x), mean(x, na.rm = TRUE), x))
+
+nan_values <- is.na(crimes)
+nan_counts <- colSums(nan_values)
+print(nan_counts)
+```
+
+LOG
+
+```{r}
+model <- glm(log(Violent) ~ ., data = crimes, family = poisson)
+summary(model)
+```
+ARIMA
+
+```{r}
+crimes$Date <- as.Date(crimes$Date, format="%Y%m%d")  # Adjust format as necessary
+violent_ts <- ts(crimes$Violent, frequency=365)
+diff_violent_ts <- diff(violent_ts, differences = 1)
+```
+
+```{r}
+Acf(violent_ts)
+```
+
+```{r}
+Acf(diff_violent_ts)
+```
+
+```{r}
+# ARIMA(4,0,3)
+fit_arima_1 <- auto.arima(diff_violent_ts) 
+summary(fit_arima_1)
+```
+
+```{r}
+checkresiduals(fit_arima_1)
+```
+
+```{r}
+# ARIMA(4,1,3) 
+#fit_arima <- auto.arima(violent_ts) 
+#summary(fit_arima)
+```
+
+```{r}
+#checkresiduals(fit_arima)
+```
+

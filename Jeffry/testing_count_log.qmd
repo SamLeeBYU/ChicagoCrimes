@@ -15,6 +15,7 @@ library(tidyverse)
 library(car)
 library(corrplot)
 library(vcd)
+library(lubridate)
 library(MASS)
 library(GGally)
 library(lmtest)
@@ -22,6 +23,7 @@ library(multcomp)
 library(nlme)
 library(mvtnorm)
 library(forecast)
+library(DescTools)
 library(lubridate)
 data <- vroom("crimes_cleaned.csv")
 ```
@@ -46,97 +48,179 @@ violence.key <- c(0,1,1,1,0,1,0,1,0,0,0,1,1,0,1,1,0,0,0,0,
 data$Violent <- violence.key[unname(mapping[data$`Primary Type`])]
 ```
 
+
 2.  Count Violent Crime by day
 
 ```{r}
-# remove preciptype, conditions, icon, description
 data <- subset(data, select = -c(preciptype, conditions, icon, description,`Primary Type`,severerisk,windgust))
-# change to binary, Arrest and Domestic
+
 data <- data %>%
   mutate(Arrest = ifelse(is.na(Arrest), NA, as.integer(Arrest)),
          Domestic = ifelse(is.na(Domestic), NA, as.integer(Domestic)))
 
-# categorical Location Description
 data <- data %>%
-  mutate(`Location Description` = factor(`Location Description`))
+  mutate(`Location Description` = factor(`Location Description`),
+         `Community Area` = factor(`Community Area`))
+```
+
+```{r}
+#check na
+nan_values <- is.na(data)
+nan_counts <- colSums(nan_values)
+print(nan_counts)
+
+factor_columns <- sapply(data, is.factor)
+data[factor_columns] <- lapply(data[factor_columns], as.character)
+
+for (col in names(data)[factor_columns]) {
+  mode_val <- names(sort(table(data[[col]]), decreasing = TRUE))[1]
+  data[[col]][is.na(data[[col]])] <- mode_val 
+}
+
+data[factor_columns] <- lapply(data[factor_columns], as.factor)
+print(colSums(is.na(data)))
+
+```
+
+```{r}
+#unique(data$`Location Description`)
+#unique(data$`Community Area`)
+data$Date <- as.Date(data$Date)
 ```
 
 ```{r}
 # count by day
+
 crimes <- data %>%
-  mutate(Date = as.Date(Date)) %>%
   group_by(Date) %>%
   summarise(Count = n(),
             Violent = sum(Violent),
             Arrest = sum(Arrest),
             Domestic = sum(Domestic),
-            `Community Area` = mean(`Community Area`),
-            moonphase = mean(moonphase),
-            solarenergy = mean(solarenergy),
-            solarradiation = mean(solarradiation),
-            visibility = mean(visibility),
-            cloudcover = mean(cloudcover),
-            sealevelpressure = mean(sealevelpressure),
-            winddir = mean(winddir),
-            windspeed = mean(windspeed),
-            snowdepth = mean(snowdepth),
-            snow = mean(snow),
-            precip = mean(precip),
-            humidity = mean(humidity),
-            dew = mean(dew),
-            feelslike = mean(feelslike),
-            temp = mean(temp)) %>%
-  ungroup()
+            .groups = "drop") %>%
+  left_join(data %>%
+              group_by(Date, `Location Description`) %>%
+              summarise(Location_Count = n(), .groups = "drop") %>%
+              pivot_wider(names_from = `Location Description`, values_from = Location_Count, values_fill =0),
+            by = "Date") %>%
+  left_join(data %>%
+              group_by(Date, `Community Area`) %>%
+              summarise(Community_Area_Count = n(), .groups = "drop") %>%
+              pivot_wider(names_from = `Community Area`, values_from = Community_Area_Count, values_fill =0),
+            by = "Date")
+
 ```
 
 ```{r}
 # count by day
 crimes
+#write_csv(crimes, "crimes_count.csv")
 ```
 
 ```{r}
-nan_values <- is.na(crimes)
-nan_counts <- colSums(nan_values)
-print(nan_counts)
+holidays <- vroom("holidays.csv")
+holidays$Date <- as.Date(holidays$Date)
+data <- merge(crimes, holidays, by = "Date", all.x = TRUE)
+data$Is_holiday <- ifelse(!is.na(data$Holiday), 1, 0)
+data <- data[, !(names(data) %in% c("Holiday", "Day of Week"))]
+```
 
-crimes <- crimes %>%
+```{r}
+weather <- vroom("weather.csv")
+weather$Date <- weather$datetime
+weather$Date <- as.Date(weather$Date)
+data <- merge(data, weather, by = "Date", all.x = TRUE)
+
+data <- data[, !(names(data) %in% c("name", "datetime"))]
+```
+```{r}
+data
+```
+
+
+```{r}
+nan_values <- is.na(data)
+nan_counts <- colSums(nan_values)
+#print(nan_counts)
+
+data <- data %>%
   mutate_if(is.double, function(x) ifelse(is.na(x), mean(x, na.rm = TRUE), x))
 
-nan_values <- is.na(crimes)
-nan_counts <- colSums(nan_values)
-print(nan_counts)
+data <- subset(data,select=-c(preciptype, severerisk, conditions, description, icon, stations,sunrise))
 ```
 
-LOG
+LOG 1
 
 ```{r}
-model <- glm(log(Violent) ~ ., data = crimes, family = poisson)
-summary(model)
+#model <- glm(log(Violent) ~ ., data = crimes, family = poisson)
+#summary(model)
 ```
+
+
+POISSON
+
+```{r}
+crimes_date <- data
+crimes_date$Date <- as.Date(crimes_date$Date)
+crimes_date$sunset<- as.Date(crimes_date$sunset)
+crimes_date$sunset_hour <- hour(crimes_date$sunset)
+crimes_date$sunset_minute <- minute(crimes_date$sunset)
+crimes_date <- subset(crimes_date, select = -c(sunset))
+crimes_date$Year <- year(crimes_date$Date)
+crimes_date$Month <- month(crimes_date$Date)
+crimes_date$Day <- day(crimes_date$Date)
+crimes_date$DayOfYear <- yday(crimes_date$Date)
+crimes_date$WeekOfYear <- isoweek(crimes_date$Date)
+crimes_date$IsWeekend <- ifelse(wday(crimes_date$Date) %in% c(1, 7), 1, 0)
+crimes_date$Season <- ifelse(month(crimes_date$Date) %in% c(3, 4, 5), "Spring",
+                              ifelse(month(crimes_date$Date) %in% c(6, 7, 8), "Summer",
+                                     ifelse(month(crimes_date$Date) %in% c(9, 10, 11), "Fall", "Winter")))
+crimes_date$Summer <- ifelse(crimes_date$Season == "Summer", 1, 0)
+
+crimes_date <- subset(crimes_date, select = -c(Season))
+
+crimes_date$Date <- crimes_date$Year + (crimes_date$Month - 0.5) / 12
+```
+
+```{r}
+#na_count <- colSums(is.na(crimes_date))
+#print(na_count)
+```
+
+```{r}
+#write_csv(crimes, "crimes_count_opt.csv")
+crimes_date <- subset(crimes_date, select = c(Violent,Arrest, Domestic, Date, APARTMENT, RESIDENCE, SIDEWALK, STREET, ALLEY, `VEHICLE NON-COMMERCIAL`, `GAS STATION`, `RESIDENTIAL YARD (FRONT/BACK)`, `PARKING LOT/GARAGE(NON.RESID.)`, Is_holiday, IsWeekend, WeekOfYear, Summer, feelslike, DayOfYear, `27`, `26`, `23`, `25`, `29`, `28`, `19`, `24`, `76`, `44`))
+```
+
+```{r}
+model2 <- glm(Violent~ ., data = crimes_date, family = poisson)
+summary(model2)
+```
+
 ARIMA
 
 ```{r}
-crimes$Date <- as.Date(crimes$Date, format="%Y%m%d")  # Adjust format as necessary
-violent_ts <- ts(crimes$Violent, frequency=365)
-diff_violent_ts <- diff(violent_ts, differences = 1)
+#crimes$Date <- as.Date(crimes$Date)
+#violent_ts <- ts(log(crimes$Violent), frequency=365)
+#diff_violent_ts <- diff(violent_ts, differences = 1)
 ```
 
 ```{r}
-Acf(violent_ts)
+#Acf(violent_ts)
 ```
 
 ```{r}
-Acf(diff_violent_ts)
+#Acf(diff_violent_ts)
 ```
 
 ```{r}
 # ARIMA(4,0,3)
-fit_arima_1 <- auto.arima(diff_violent_ts) 
-summary(fit_arima_1)
+#fit_arima_1 <- auto.arima(diff_violent_ts) 
+#summary(fit_arima_1)
 ```
 
 ```{r}
-checkresiduals(fit_arima_1)
+#checkresiduals(fit_arima_1)
 ```
 
 ```{r}

@@ -9,63 +9,130 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(ggmap)
 library(lubridate)
-library(animation)
+library(jsonlite)
 
-crimes <- read_csv("Data/Crimes.csv")
-moons <- read_csv("Data/full_moon.csv") %>%
-  mutate(Day = dmy(FullMoonDates))
-holidays <- read_csv("Data/holidays.csv") %>%
-  mutate(Day = ymd(Date))
-weather <- read_csv("Data/weather.csv") %>%
-  mutate(Day = ymd(datetime))
-weather.covariates = colnames(weather) %>% 
-  setdiff(c("name", "datetime", "stations", "Day"))
+#For zero-inflated Poisson
+require(pscl)
+require(boot)
+
 maps.api.key = read_file("maps_api.txt")
 
-crimes$Date <- mdy_hms(crimes$Date)
-crimes$Day <- as.Date(crimes$Date)
-crimes$Day <- as.Date(crimes$Date)
+# https://timeseriesreasoning.com/contents/zero-inflated-poisson-regression-model/
+# 
+# https://stats.oarc.ucla.edu/r/dae/zip/
+
+crimes <- read_csv("Data/Crimes.csv")
+crimes$DateTime <- mdy_hms(crimes$Date)
+crimes$Date <- as.Date(crimes$DateTime)
+crimes$hour <- hour(crimes$DateTime)
+
+moons <- read_csv("Data/full_moon.csv") %>%
+  mutate(Date = dmy(FullMoonDates))
+
+holidays <- read_csv("Data/holidays.csv") %>%
+  mutate(Date = ymd(Date))
+
+#Weather from Open-Meteo API
+#API Call: https://archive-api.open-meteo.com/v1/archive?latitude=41.881832&longitude=-87.72&start_date=2010-01-01&end_date=2024-02-24&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,rain,snowfall,snow_depth,cloud_cover,wind_speed_10m,wind_gusts_10m,is_day,shortwave_radiation_instant,direct_radiation_instant&timezone=America%2FChicago
+
+weather.data <- fromJSON("Data/weather.json")["hourly"] %>% as.data.frame()
+weather.data$hourly.time = weather.data$hourly.time %>% str_replace("T", " ")
+weather.data$hourly.time = ymd_hm(weather.data$hourly.time)
+weather.data <- weather.data %>%
+  mutate(
+    Date = as.Date(hourly.time),
+    hour = hour(hourly.time) %>%
+      as.numeric()
+  )
+weather.covariates <- colnames(weather.data)[2:(ncol(weather.data)-2)]
 
 cutoff.date = max(
-  c(min(crimes$Day), min(holidays$Day), min(weather$Day), min(moons$Day))
+  c(min(crimes$Date), min(holidays$Date), min(weather.data$Date))
+)
+upper.cutoff = min(
+  c(max(crimes$Date), max(holidays$Date), max(weather.data$Date))
 )
 
-crimes.cleaned <- crimes %>% 
-  left_join(weather) %>%
+#weather.data[weather.data %>% dplyr::select(DateTime, hour) %>% duplicated(),]
+
+crimes <- weather.data %>% left_join(crimes) %>%
+  mutate(
+    DateTime = hourly.time,
+    Year = year(DateTime)
+  )
+
+week.days <- c("Mon", "Tues", "Wed", "Thurs", "Fri", "Sat", "Sun")
+
+crimes.cleaned <- crimes %>%
   left_join(holidays) %>%
   left_join(moons) %>%
   mutate(
     Holiday = ifelse(is.na(Holiday), "", Holiday),
-    `Day of Week` = wday(Day),
+    DayofWeek = week.days[wday(Date, week_start=1)],
     FullMoon = ifelse(is.na(FullMoonDates),0,1)
   ) %>% filter(
-    Day >= cutoff.date
+    Date >= cutoff.date & Date <= upper.cutoff
   )
   
-factors = c("Date", "Primary Type", "Location Description", "Arrest",
+factors = c("DateTime", "Date", "Primary Type", "Location Description", "Arrest",
             "Domestic", "Community Area", "Year", "Latitude", "Longitude",
-            "Day", weather.covariates, "FullMoon")
+            "FullMoon", "DayofWeek", "Holiday", "hour", weather.covariates)
 
 crimes.cleaned <- crimes.cleaned[,factors]
-```
 
-```{r fig.width=8, fig.height=8, message=F, warning=F}
 #In the FBI's Uniform Crime Reporting (UCR) Program, violent crime is composed 
 #of four offenses: murder and nonnegligent manslaughter, forcible rape, 
 #robbery, and aggravated assault.
 
-allcrimes = sort(crimes$`Primary Type`) %>% unique()
+allcrimes = crimes.cleaned$`Primary Type` %>% unique() %>% sort()
 violence.key <- c(0,1,1,1,0,1,0,1,0,0,0,1,1,0,1,1,0,0,0,0,
                   0,0,0,0,0,0,0,0,0,0,1,0,0,0,0)
 mapping <- setNames(seq_along(unique(allcrimes)), unique(allcrimes))
-crimes$Violent <- violence.key[unname(mapping[crimes$`Primary Type`])]
+crimes.cleaned$Violent <- violence.key[unname(mapping[crimes.cleaned$`Primary Type`])]
+
+crimes.cleaned <- crimes.cleaned %>%
+  mutate(
+    #These are the hours where there weren't any violent crimes 
+    Violent = ifelse(is.na(Violent), 0, Violent)
+  )
+
+crimes.cleaned <- crimes.cleaned %>% group_by(Violent, Date, hour) %>%
+  mutate(
+    NumViolentCrimes = Violent*n()
+  ) %>% ungroup()
+
+
+
+#Assume unemployment rate in Chicago's 11th police district is proportional
+#to the unemployment rate in the Chicago area
+unem <- read_csv("../Data/chicago-unemployment.csv") %>%
+  select(Year, Label, Value) %>%
+  mutate(
+    Date = ym(Label),
+    Month = month.name[month(Date)]
+  ) %>% select(-Label) %>% setNames(c(
+    "Year", "Unemployment", "Date", "Month"
+  )) %>% arrange(Date)
+
+crimes.cleaned$Month <- month.name[month(crimes.cleaned$Date)]
+
+#Add in monthly unemployment
+crimes.cleaned <- crimes.cleaned %>%
+  left_join(
+    unem %>% select(-Date), by=join_by(Year, Month)
+  )
+
+write_csv(crimes.cleaned, "crimes_cleaned.csv")
+```
+
+```{r fig.width=8, fig.height=8, message=F, warning=F, echo=F}
 
 register_google(key=maps.api.key)
 chicago_map <- get_map(location = c(lon=-87.72, lat = 41.881832),
                        zoom = 13)
 
 ggmap(chicago_map) +
-  geom_point(data = filter(crimes, Year==2023),
+  geom_point(data = filter(crimes.cleaned, Year==2023),
              aes(x = Longitude, y = Latitude, color=as.factor(Violent)),
              alpha=0.2) +
   labs(title = "Crimes in District 11 During 2023")
@@ -73,20 +140,43 @@ ggmap(chicago_map) +
 
 marginal_crimes <- function(df, year=2023){
   df %>% filter(Year %in% year) %>%
-    group_by(Day) %>% summarize(
-    n_crimes = n(),
-    violent_crimes = sum(Violent)
-  ) %>%
+    group_by(Date) %>%
+    summarize(
+      n_crimes = n(),
+      n_violent = sum(Violent),
+    ) %>%
     ggplot()+
-    geom_line(aes(x=Day, y=n_crimes))+
-    geom_line(aes(x=Day, y=violent_crimes), color="red")+
+    geom_line(aes(x=Date, y=n_violent), color="red")+
     labs(
       x="Date",
-      y="# of Crimes"
+      y="# of Daily Violent Crimes"
     )+
     theme_minimal()
 }
-marginal_crimes(crimes, year=2022:2024)
+marginal_crimes(crimes.cleaned, year=2023)
 
-write_csv(crimes.cleaned, "crimes_cleaned.csv")
+#This is why we should use a zero-inflated poisson
+crimes.cleaned$NumViolentCrimes %>% hist(main="Distribution of Violent Crimes by Hour")
+
+unem %>% ggplot(aes(x=Date, y=Unemployment))+
+  geom_point()+
+  geom_line()+
+  theme_minimal()+
+  geom_smooth(method="gam")
+
 ```
+
+<!-- Multivariate regression on location -->
+
+<!-- ```{r} -->
+<!-- crimes.mvlm <- lm(cbind(Longitude, Latitude, NumViolentCrimes) ~ hour + DayofWeek, -->
+<!--                     data=crimes.cleaned) -->
+<!-- new_data <- expand.grid("hour" = unique(crimes.cleaned$hour), -->
+<!--                        "DayofWeek" = "Mon") -->
+<!-- predictions <- cbind(new_data, predict(crimes.mvlm, newdata = new_data)) -->
+
+<!-- ggmap(chicago_map) + -->
+<!--   geom_point(data = predictions, -->
+<!--              aes(x = Longitude, y = Latitude, color=hour), alpha=0.2) + -->
+<!--   labs(title = "Crimes in District 11 During 2023") -->
+<!-- ``` -->

@@ -1,0 +1,173 @@
+---
+title: "Competition Code"
+author: "Jeffry Troll"
+format: pdf
+editor: visual
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse) # Data Wrangling and plotting
+library(vroom) # Read Data
+library(patchwork) # Combine multiple plots in one visualization
+library(tinytex)
+library(tidyverse)
+library(car)
+library(corrplot)
+library(vcd)
+library(MASS)
+library(GGally)
+library(lmtest)
+library(multcomp)
+library(nlme)
+library(mvtnorm)
+library(lubridate)
+data <- vroom("Crimes.csv")
+```
+
+## Exploratory Data Analysis
+
+```{r}
+head(data)
+```
+
+1.  Filter Year
+
+```{r}
+subset_data <- data[data$Year >= 2010, ]
+subset_data 
+
+```
+
+2.  Create column of Violent Crime
+
+```{r}
+#unique(data$`Primary Type`)
+#According to FBI website and some research, the following are considered violent crimne
+
+specified_types <- c("HOMICIDE", "KIDNAPPING", "BATTERY", "ASSAULT", "ROBBERY", "SEX OFFENSE", 
+                      "CRIMINAL SEXUAL ASSAULT", "ARSON", "INTIMIDATION", "CRIM SEXUAL ASSAULT", 
+                      "HUMAN TRAFFICKING")
+
+subset_data$Violent_crime <- ifelse(subset_data$`Primary Type` %in% specified_types, 1, 0)
+```
+
+3.  Count Violent Crime by day
+
+```{r}
+subset_data$Date <- as.Date(mdy_hms(subset_data$Date))
+```
+
+```{r}
+crimes <- subset_data %>%
+    group_by(Date) %>%
+    summarise(Count_crimes = n(),
+              Violent_crime = sum(Violent_crime)) %>%
+    ungroup()
+```
+
+```{r}
+crimes <- subset_data %>%
+    group_by(Date) %>%
+    summarise(Count_crimes = n(),
+              Violent_crime = sum(Violent_crime)) %>%
+    ungroup()
+```
+
+```{r}
+plot(crimes$Date,crimes$Count_crimes, xlab = "Date", ylab = "Crimes", main = "Scatterplot of Time vs. Crimes", type = "l")
+```
+
+4.  Adding Holiday data
+
+```{r}
+holidays <- vroom("holidays.csv")
+merged_data <- merge(crimes, holidays, by = "Date", all.x = TRUE)
+merged_data$Is_holiday <- ifelse(!is.na(merged_data$Holiday), 1, 0)
+merged_data <- merged_data[, !(names(merged_data) %in% c("Holiday", "Day of Week"))]
+```
+
+5.  Adding Full moon
+
+```{r}
+moon <- vroom("full_moon.csv")
+moon <- moon[moon$Year >= 2010, ]
+
+moon$Date <- as.Date(moon$FullMoonDates, format = "%d %B %Y")
+moon$Date <- format(moon$Date, "%Y-%m-%d")
+
+merged_data <- merge(merged_data, moon, by = "Date", all.x = TRUE)
+merged_data$Is_full_moon <- ifelse(!is.na(merged_data$FullMoonDates), 1, 0)
+merged_data <- merged_data[, !(names(merged_data) %in% c("Year", "FullMoonDates"))]
+```
+
+6.  Adding weather
+
+```{r}
+weather <- vroom("weather.csv")
+weather$Date <- weather$datetime
+merged_data <- merge(merged_data, weather, by = "Date", all.x = TRUE)
+
+merged_data <- merged_data[, !(names(merged_data) %in% c("name", "datetime"))]
+```
+
+```{r}
+#unique(merged_data$preciptype)
+merged_data <- subset(merged_data, select = -c(preciptype, conditions, sunrise, sunset, severerisk, windgust,description, icon, stations))
+merged_data$Year <- year(merged_data$Date)
+merged_data$Month <- month(merged_data$Date)
+merged_data$YrMon <- merged_data$Year + (merged_data$Month - 0.5)/12
+merged_data$Rate <- (merged_data$Violent_crime/merged_data$Count_crimes)
+```
+
+7.  Checking NAN values
+
+```{r}
+nan_values <- is.na(merged_data)
+nan_counts <- colSums(nan_values)
+print(nan_counts)
+```
+
+8.  Catching seasonality
+
+```{r}
+ggplot(merged_data, aes(y = Rate , x = YrMon)) +
+  geom_line() +
+  labs(title = "Times Series Rate Violent Crime vs Time", x = "Rate Violent Crime", y = "Year")
+```
+
+```{r}
+ggAcf(x=merged_data$Rate, lag.max=365*12)
+```
+
+9.  EDA
+
+```{r}
+ggplot(merged_data, aes(x = factor(Year), y = Rate)) +
+  geom_boxplot() +
+  labs(x = "Year", y = "Rate", title = "Boxplot of Rate by Year")
+```
+
+```{r}
+ggplot(merged_data, aes(x = factor(Month), y = Rate)) +
+  geom_boxplot() +
+  labs(x = "Month", y = "Rate", title = "Boxplot of Rate by Month")
+```
+
+```{r}
+ggplot(merged_data, aes(x = factor(Is_full_moon), y = Rate)) +
+  geom_boxplot() +
+  labs(x = "Full Moon", y = "Rate", title = "Boxplot of Rate by Full Moon")
+```
+
+```{r}
+ggplot(merged_data, aes(x = moonphase, y = Rate)) +
+  geom_point() +
+  labs(x = "Full Moon", y = "Rate", title = "Boxplot of Rate by Full Moon")
+```
+
+```{r}
+ggplot(merged_data, aes(x = factor(Is_holiday), y = Rate)) +
+  geom_boxplot() +
+  labs(x = "Holiday", y = "Rate", title = "Boxplot of Rate by Holiday")
+```

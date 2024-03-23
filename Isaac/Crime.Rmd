@@ -5,28 +5,45 @@ date: "2024-03-18"
 output: pdf_document
 ---
 
-```{r}
+## Problem
+
+Predict and, consequently, reduce the rate of violent crimes within our city.
+1. Factors that influence the rate of Violent Crimes in Chicago.
+2. Explore all possible correlations.
+3. Particularly vulnerable periods.
+4. Any Recommendations to reduce Violent Crimes
+
+
+```{r, message = FALSE, warning = FALSE}
 library(tidyverse)
 library(skimr)
 library(vroom)
 library(lubridate)
+library(DescTools)  # For Mode function
+library(forcats) # uses as_factor (keeps levels the way they are)
+library(fastDummies)
+library(corrplot) 
+library(progress)
+library(glmnet)
 ```
 
 ```{r}
 setwd("C:/Users/oia22/Box/College/Competition")
-setwd("~/Library/CloudStorage/Box-Box/College/Competition")
+
 ```
 
-```{r}
+```{r, message = FALSE, warning = FALSE}
 crimes <- vroom("Crimes.csv") 
 weather <- vroom("weather.csv")
 full_moon <- vroom("full_moon.csv")
 holidays <- vroom("holidays.csv")
+crimes_c <- vroom("crimes_cleaned.csv")
 ```
-## Merging the data
+
+
 ```{r}
 # Make Date in Crime a date type
-crimes$Datetime <- mdy_hms(crimes$Date)
+crimes$Datetime <- floor_date(mdy_hms(crimes$Date), unit = "hours")
 crimes$Date <- as_date(crimes$Datetime)
 
 
@@ -39,16 +56,276 @@ master <-  master %>%
 # Add holidays data
 master <-  master %>%
   mutate(is_holiday = if_else(Date %in% holidays$Date, 1, 0))
+
+# Add hourly weather data
+master <- merge(master, crimes_c[, c("DateTime", "hourly.temperature_2m","hourly.relative_humidity_2m","hourly.apparent_temperature", "hourly.rain", "hourly.snowfall", "hourly.snow_depth", "hourly.cloud_cover", "hourly.wind_speed_10m","hourly.wind_gusts_10m", "hourly.is_day","hourly.shortwave_radiation_instant", "hourly.direct_radiation_instant","Violent","Unemployment")],
+                   by.x = "Datetime", by.y = "DateTime",
+                   all.x = TRUE)
 ```
 
 ```{r}
-# Add month, week of the year, and day of the week.
+# Filter from 2010 to end of 2023
+master <- master %>% filter(Year >= 2010, Year < 2024)
 ```
 
 
-## EDA
 ```{r}
-skim(master)
+# Extract time variables of interest.
+master$month <- month(master$Datetime, label=T)
+master$week <- week(master$Datetime)
+master$DayOfWeek <- wday(master$Datetime, label = TRUE)
+master$hour <- hour(master$Datetime)
+master$DayofMonth <- day(master$Datetime)
 ```
 
+
+```{r}
+# Identify violent crimes
+names_v <- c("RAPE","MURDER","ASSAULT","CRIM SEXUAL ASSAULT	", "BATTERY", "CRIMINAL SEXUAL ASSAULT", "HOMICIDE", "HUMAN TRAFFICKING","INTIMIDATION", "KIDNAPPING", "ROBBERY", "SEX OFFENSE", "STALKING","OFFENSE INVOLVING CHILDREN") # Names of violent crimes
+master$is_violent_crime <- ifelse(master$`Primary Type` %in% names_v | "VIOLENCE" %in% master$Description, 1, 0)
+
+# Filter out non violent crimes
+violent_crimes <- master %>% filter(is_violent_crime == 1) %>% distinct(`Primary Type`)
+non_violent_crimes <- master %>% filter(is_violent_crime != 1) %>% distinct(`Primary Type`)
+master <- master %>% filter(is_violent_crime == 1)
+```
+
+```{r}
+# Remove unnecessary columns (Based on judgement)
+rm_cols <- c("ID", "Case Number","Block","IUCR","Description","District","FBI Code","X Coordinate","Y Coordinate", "Updated On", "Location","name", "tempmax","tempmin","temp","feelslikemax" ,"feelslikemin","feelslike", "humidity", "precip","precipprob" ,"precipcover","preciptype","snow","snowdepth","windgust","windspeed","winddir","cloudcover","solarradiation","solarenergy","uvindex","severerisk","sunrise","sunset", "conditions","description","icon","stations", "Violent", "Date","is_violent_crime" )
+master <- master[, !names(master) %in% rm_cols]
+```
+
+```{r}
+# Rename some columns (weather data)
+new_master <- master %>%
+  rename("temperature" = hourly.temperature_2m,
+         "humidity" = hourly.relative_humidity_2m,
+         "feels_like" = hourly.apparent_temperature,
+         "rain" = hourly.rain,
+         "snowfall" = hourly.snowfall,
+         "snow_depth" = hourly.snow_depth,
+         "cloud_cover" = hourly.cloud_cover,
+         "wind_speed" = hourly.wind_speed_10m,
+         "wind_gusts" = hourly.wind_gusts_10m,
+         "is_day" = hourly.is_day,
+         "shortwave_radiation" = hourly.shortwave_radiation_instant,
+         "direct_radiation" = hourly.direct_radiation_instant)
+```
+
+
+
+```{r}
+# Order dataframe by Datetime and place columns in most logical order (Group them by time variable, spacial variables, etc)
+new_master <- new_master %>%
+  select(Datetime,Year,month,week,DayOfWeek,DayofMonth,hour,is_holiday,is_full_moon,moonphase,temperature,humidity,feels_like,rain,snowfall,snow_depth,cloud_cover,wind_speed,wind_gusts,is_day,shortwave_radiation,direct_radiation,dew,sealevelpressure,visibility,`Primary Type`,Arrest,Beat,Domestic,`Location Description`,Ward,`Community Area`,Latitude,Longitude,Unemployment) %>%
+  arrange(Datetime)
+```
+
+**Questions before Grouping & Summarizing**
+
+1. moonphase turn into factor?
+```{r}
+table(new_master$moonphase)
+# Answer is no (Continuous variable)
+```
+2 is_day turn into factor?
+```{r}
+table(new_master$is_day)
+# answer is yes
+```
+
+3. Turn into factors (Beat, Ward, Community Area)?
+```{r}
+table(new_master$Beat)
+# Answer is yes
+table(new_master$Ward)
+# Answer is yes
+table(new_master$`Community Area`)
+# Answer is yes
+```
+
+4. Should we remove Latitude and Longitude?
+```{r}
+new_master <- new_master %>% filter(Longitude > -91) # Remove points that are not in the area (Longitude might be wrong)
+new_master <- new_master %>% filter(Beat > 1100, Beat < 1200) # Remove rows with this info (no longitude and latitude recorded)
+# Missing values for Community Area
+new_master %>% filter(Latitude < 41.88, Latitude > 41.87, Longitude < -87.7, Longitude > -87.71) %>% select(`Community Area`) %>% distinct()
+# After reviewing the map NAs from Community Area come from area #27
+new_master <- new_master %>% mutate(`Community Area` = ifelse(is.na(`Community Area`), 27, `Community Area`))
+
+# Ward, Community Area
+filtered <- new_master %>% filter(Beat == 1111)
+for (i in unique(new_master$Beat)) {
+  filtered <- new_master %>% filter(Beat == i)
+  
+  # Create scatter plot for each Beat
+  plot <- ggplot(filtered, aes(x = Longitude, y = Latitude)) +
+    geom_point() +
+    labs(x = "Longitude", y = "Latitude") +
+    ggtitle(paste("Scatter Plot of Longitude vs Latitude for Beat", i)) +
+    xlim(min(new_master$Longitude), max(new_master$Longitude)) +
+    ylim(min(new_master$Latitude), max(new_master$Latitude))
+  
+  # Print each plot
+  print(plot)
+}
+
+# Remove Latitude and Longitude for the grouped data, everything is captured in the other variables
+new_master <- new_master %>% select(-Longitude, -Latitude, -`Location Description`, -Ward, -`Community Area`)
+# Remove Datetime (we can create it back later with the columns we extracted from it)
+new_master <- new_master %>% select(-Datetime)
+```
+
+
+```{r}
+# Perform findings from questions
+# new_master$is_day <- as_factor(new_master$is_day)
+new_master$Beat <- as_factor(new_master$Beat)
+new_master$Ward <- as_factor(new_master$Ward)
+new_master$`Community Area` <- as_factor(new_master$`Community Area`)
+new_master$`Primary Type` <- as_factor(new_master$`Primary Type`)
+#new_master$is_holiday <- as_factor(new_master$is_holiday)
+#new_master$is_full_moon <- as_factor(new_master$is_full_moon)
+#new_master <- mutate_if(new_master, is.logical, as.factor)
+new_master <- new_master %>% mutate(`Location Description` = ifelse(is.na(`Location Description`), 'UNKOWN', `Location Description`)) # Fix missing values from Location Description
+new_master$`Location Description` <- as_factor(new_master$`Location Description`)
+```
+
+```{r}
+# Reduce number of Location Description categories by grouping the ones with low frequency into an "ANOTHER" category
+
+# If it contains CTA, just name it CTA
+new_master <- new_master %>% mutate(`Location Description` = if_else(str_detect(`Location Description`, "CTA"), "CTA", `Location Description`))
+new_master <- new_master %>% mutate(`Location Description` = if_else(str_detect(`Location Description`, "SCHOOL"), "SCHOOL, PUBLIC, BUILDING", `Location Description`))
+new_master <- new_master %>% mutate(`Location Description` = if_else(str_detect(`Location Description`, "VEHICLE"), "VEHICLE", `Location Description`))
+new_master <- new_master %>% mutate(`Location Description` = if_else(str_detect(`Location Description`, "AUTO"), "VEHICLE", `Location Description`))
+category_percentages <- new_master %>%
+  group_by(`Location Description`) %>%
+  summarize(count = n()) %>%
+  mutate(percentage = count / sum(count) * 100) %>%
+  arrange(desc(percentage))
+
+threshold_percentage <- .04
+
+# Get the categories with percentages below the threshold
+categories_to_group <- category_percentages %>%
+  filter(percentage < threshold_percentage) %>%
+  pull(`Location Description`)
+
+new_master <- new_master %>%
+  mutate(`Location Description` = ifelse(`Location Description` %in% categories_to_group, "OTHER", `Location Description`))
+```
+
+
+```{r}
+# Make factor variables with multiple variables 
+long_master <- dummy_cols(new_master, select_columns = c("Primary Type", "Beat", "Ward", "Community Area", "Location Description"))
+long_master <- long_master %>% select(-c("Primary Type", "Beat", "Ward", "Community Area", "Location Description"))
+```
+
+
+
+```{r}
+# Group and summarize to get # of crimes per hour of the year.
+get_mean <- c("moonphase", "temperature", "humidity", "feels_like", "rain", 
+                         "snowfall", "snow_depth", "cloud_cover", "wind_speed", 
+                         "wind_gusts", "shortwave_radiation", "direct_radiation", 
+                         "dew", "sealevelpressure", "visibility", "Unemployment")
+
+final <- long_master %>%
+  group_by(Year, month, week, DayOfWeek, DayofMonth, hour) %>%
+  summarize(across(everything(),
+                   ~ if_else(any(names(.) %in% get_mean),
+                             mean(., na.rm = TRUE), 
+                             sum(., na.rm = TRUE))),
+             n_crimes = n())
+
+# Save the final dataframe
+write.csv(final, "final_table.csv", row.names = FALSE)
+```
+```{r}
+# Load the saved object back into R
+final_raw <- read_csv(file = "final_table.csv")
+final_raw$hour <- as_factor(final_raw$hour)
+final <- final_raw %>% select(!(matches("Location Description.*|Ward.*|Community Area.*|Primary Type.*|month.*"))) %>%
+  select(-c("is_full_moon", "moonphase", "temperature", "humidity",
+                        "feels_like", "rain", "snowfall", "cloud_cover",
+                        "wind_gusts", "shortwave_radiation", "direct_radiation",
+                        "dew", "visibility", "Arrest", "Domestic", "week"))
+```
+```{r}
+
+```
+
+
+## Select Features to use
+
+```{r}
+# Define exploratory and predictive
+y <- final$n_crimes
+X <- model.matrix(n_crimes~.+DayOfWeek*hour, data = final)
+
+# Model
+lasso.pois <- cv.glmnet(X, y, family = "poisson", alpha = 1, verbose = TRUE)
+lambda.star <- lasso.pois$lambda.min # Best lambda
+coefficients <- coef(lasso.pois, s = lambda.star)
+coefficients
+```
+
+```{r}
+# Check for Autocorrelation
+predicted <- predict(lasso.pois, newx = X, s = lambda.star, type = "response") # Predicted values
+residuals <- y - predicted # Residuals
+acf(residuals)
+mean(residuals^2) # Compute Mean Squared Error (MSE)
+# MSE without Location Description.*|Ward.*|Community Area.*|Primary Type.* ==> 44.81995
+# MSE without Location Description.*|Ward.*|Community Area.*|Primary Type.*|month.* ==> 39.4265
+# MSE without Location Description.*|Ward.*|Community Area.*|Primary Type.*|month.* & other weather data ==> 33.76191
+```
+
+Are factors different depending on Primary Type?
+```{r}
+vc_type <- unique(new_master$`Primary Type`)
+
+# Create 11 models 
+```
+
+
+## Select Best Model for prediction
+
+```{r}
+# Split between Train and Test
+
+```
+
+
+```{r}
+# Poisson Regression
+
+```
+
+
+```{r}
+# Time Series
+
+```
+
+```{r}
+# Random Forest
+
+```
+
+
+## Predictions csv for Dashboard
+
+```{r}
+# Select best model and do predictions for Jan 2024 to March 2024
+
+
+```
+
+```{r}
+# Save csv
+```
 

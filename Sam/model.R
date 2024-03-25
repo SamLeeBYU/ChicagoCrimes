@@ -92,12 +92,12 @@ autoregressive <- function(){
 }
 
 #Weighted median of hour violent crime is committed
-weighted.hours <- model.data %>% dplyr::select(hour, NumViolentCrimes) %>%
-  group_by(hour) %>%
-  summarise(
-    weight = n()*sum(NumViolentCrimes)
-  ) %>% ungroup() %>% arrange(weight) %>% uncount(weights=weight)
-median.hour <- weighted.hours[round(0.5*nrow(weighted.hours)),] %>% pull(hour)
+# weighted.hours <- model.data %>% dplyr::select(hour, NumViolentCrimes) %>%
+#   group_by(hour) %>%
+#   summarise(
+#     weight = n()*sum(NumViolentCrimes)
+#   ) %>% ungroup() %>% arrange(weight) %>% uncount(weights=weight)
+# median.hour <- weighted.hours[round(0.5*nrow(weighted.hours)),] %>% pull(hour)
 
 ## START HERE ################################################################
 
@@ -108,7 +108,7 @@ model.data <- model.data %>% arrange(DateTime) %>% mutate (
   Year = Year-2009,
   Month = relevel(as.factor(Month), ref="January"),
   #9:00, this is the weighted median of the hour violent crime is committed. So we will use this as a base hour
-  hour = relevel(as.factor(hour), ref=median.hour) ,
+  hour = relevel(as.factor(hour), ref=21) ,
   Day = relevel(as.factor(DayofWeek), ref=1), #Monday,
   t = 1:nrow(model.data),
   Holiday = ifelse(!is.na(Holiday), Holiday, "None"),
@@ -120,28 +120,38 @@ model.data[numeric.covariates] = apply(model.data[numeric.covariates], 2, standa
 crime.covariates = c("FullMoon", "hourly.is_day", "Year", "t", "Month", "Day", "hour", "Holiday", 
                      numeric.covariates)
 #Full data set for regression
-model.data <- model.data[c(crime.covariates, "NumViolentCrimes")]
+model.data <- model.data[c("DateTime", crime.covariates, "NumViolentCrimes")]
+write_csv(model.data, "model_data.csv")
 
 create_model <- function(zero.infl = F){
-  model.formula <- "NumViolentCrimes ~ FullMoon*hourly.is_day + Unemployment + Holiday + Year + Year^2 + Year^3 + Month*Day*hour"
+  model.formula <- "NumViolentCrimes ~ FullMoon*hourly.is_day + Unemployment + Holiday + Year + I(Year^2) + I(Year^3) + Month + Day*hour"
+  model.add <- ""
   #Weather covariates
   for(covariate in setdiff(weather.covariates, "hourly.is_day")){
+    model.add <- str_c(model.add, str_c(" + ", covariate))
     model.formula <- str_c(model.formula, str_c(" + ", covariate))
   }
   #Introduce auto regressive covariates for hour by day of the week
-  for(i in 1:7){
-    for(j in 1:24){
-      model.formula <- str_c(model.formula, str_c(" + lag(NumViolentCrimes,", i*j, ")"))
-    }
+  for(j in 1:24){
+    model.add <- str_c(model.add, str_c(" + lag(NumViolentCrimes,", j, ")"))
+    model.formula <- str_c(model.formula, str_c(" + lag(NumViolentCrimes,", j, ")"))
   }
   if(!zero.infl){
     model.formula %>% formula() 
   } else {
-    str_c(model.formula, " | .") %>% formula()
+    #str_c(model.formula, " | FullMoon*hourly.is_day + Unemployment + Holiday + Year + I(Year^2) + I(Year^3) + Month + Day*hour", model.add) %>% formula()
+    str_c(model.formula, " | 1") %>% formula()
   }
 }
 model = create_model()
 zero.infl.model <- create_model(zero.infl = T)
+
+zeroinfl.predict <- function(X.p, X, betas.p, beta){
+  p.reduced = X.p %*% betas.p
+  pi = exp(p.reduced)/(1+p.reduced)
+  
+  (1-pi)*exp(X%*%beta)
+}
 
 run_mle <- function(){
   #Since this assumes a Normal likelihood, these estimates will be inefficient
@@ -149,12 +159,43 @@ run_mle <- function(){
   summary(model.ols)
   
   yhat <- predict(model.ols)
-  model.data$yhat.ols <- c(rep(NA_real_, 168), yhat)
+  model.data$yhat.ols <- c(rep(NA_real_, 24), yhat)
   rmse.ols = sqrt(mean((model.data$NumViolentCrimes-model.data$yhat.ols)^2, na.rm=T))
   
-  #Normal likelihood is bad!
+  #Normal likelihood is a bad approximation!
   hist(yhat)
   
   #Zero inflated poisson with Maximum Likelihood
-  model.zeroinf <- zeroinfl(zero.infl.model, data=model.data) 
+  #model.zeroinf <- zeroinfl(zero.infl.model, data=model.data)
+  #save(model.zeroinf, file="model_zeroinf.RData")
+  load("model_zeroinf.RData")
+  model.zeroinf$coefficients
+  summary(model.zeroinf)
+  
+  # X = X.p = model.matrix(model.zeroinf)
+  # betas = model.zeroinf$coefficients$count %>% as.matrix()
+  # betas.p = model.zeroinf$coefficients$zero %>% as.matrix()
+  # 
+  # yhat.zeroinf <- zeroinfl.predict(X.p, X, betas.p, betas)
+  model.data$yhat.zeroinf <- c(rep(NA_real_, 24), model.zeroinf$fitted.values)
+  confint(model.data,)
+  
+  #Randomly select 1 week
+  r.index = sample(25:(nrow(model.data)-24*1), size=1)
+  r.week = model.data[r.index:(r.index+(24*1)),]
+  r.week %>%
+    ggplot(aes(x=DateTime)) +
+    geom_line(aes(y=NumViolentCrimes), linewidth=1.2)+
+    geom_line(aes(y=yhat.zeroinf), color="forestgreen", alpha=0.5, linewidth=1.2)+
+    theme_minimal()
+  
+  # model.data %>% dplyr::select(NumViolentCrimes, yhat.zeroinf) %>% View()
+  
+  mse.zeroinfl <- mean(model.zeroinf$residuals^2, na.rm=T)
+  
+  #Bayesian poisson model (Doesn't converge! Don't run!)
+  # model.poisson.bayes <- stan_glm(model, family="poisson", data=model.data)
+  # samples = as.matrix(model.poisson.bayes)
+  # plot(density(samples[,1]))
+  
 }

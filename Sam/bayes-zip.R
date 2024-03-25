@@ -1,17 +1,35 @@
 #Load in libraries and data set for regression
 source("model.R")
-write_csv(model.data, "model_data.csv")
 
-dataToNimble <- function(model.df=model.data){
+#Auto regressive lagged effects data
+lagged.data <- c()
+#for(i in 1:7){
+  for(j in 1:24){
+    if(length(lagged.data) <= 0){
+      lagged.data <- as.matrix(lag(model.data$NumViolentCrimes, j))
+    } else {
+      lagged.data <- cbind(lagged.data, lag(model.data$NumViolentCrimes, j)) 
+    }
+  }
+#}
+
+library(caret)
+
+#Split into training data and testing data
+train_index <- createDataPartition(model.data$NumViolentCrimes, p = 0.01, list = FALSE)
+train_set <- model.data[train_index, ]
+train_lags <- lagged.data[train_index, ]
+test_set <- model.data[-train_index, ]
+test_lags <- lagged.data[-train_index, ]
+
+dataToNimble <- function(model.df=model.data, lags){
   model.df <- model.df %>% arrange(desc(t))
   nimble.data <- list(
     #Response
     y = model.df$NumViolentCrimes,
-    #Covariate data
-    FullMoon = model.df$FullMoon,
-    DayTime = model.df$hourly.is_day,
-    Unemployment = model.df$Unemployment,
-    Year = model.df$Year
+    #Base Covariate data
+    X = cbind(model.df$FullMoon, model.df$hourly.is_day, model.df$FullMoon*model.df$hourly.is_day,
+              model.df$Unemployment, model.df$Year, model.df$Year^2, model.df$Year^3)
   )
   
   y = as.matrix(nimble.data$y)
@@ -29,8 +47,7 @@ dataToNimble <- function(model.df=model.data){
   holiday.data = X[,sapply(colnames(X), function(colname) any(str_detect(colname, holidays)))]
   nimble.data$Holidays = holiday.data
   
-  #This variable is loaded in with line 2
-  weather.covariates
+  weather.covariates = c("hourly.temperature_2m", "hourly.relative_humidity_2m", "hourly.rain", "hourly.snowfall", "hourly.snow_depth", "hourly.cloud_cover", "hourly.wind_gusts_10m", "hourly.shortwave_radiation_instant")
   nimble.data$Weather = as.matrix(model.df[weather.covariates])
   
   #Time fixed effects
@@ -46,28 +63,17 @@ dataToNimble <- function(model.df=model.data){
   X.month <- model.matrix(model.month.lm)[,2:12]
   nimble.data$Months = X.month
   
-  #Auto regressive lagged effects data
-  lagged.data <- c()
-  for(i in 1:7){
-    for(j in 1:24){
-      if(length(lagged.data) <= 0){
-        lagged.data <- as.matrix(lag(model.df$NumViolentCrimes, i*j))
-      } else {
-        lagged.data <- cbind(lagged.data, lag(model.df$NumViolentCrimes, i*j)) 
-      }
-    }
-  }
-  nimble.data$lag.y <- lagged.data
+  nimble.data$lag.y <- lags
   
   #Due to the introduction of the auto regressive variables, we lose 7*24=168 observations
   for(i in 1:length(nimble.data)){
     data = nimble.data[[i]] %>% as.matrix()
-    data.adjusted <- data[(168+1):nrow(model.df),]
-    nimble.data[[i]] <- data.adjusted
+    data.adjusted <- data[(24+1):nrow(model.df),]
+    nimble.data[[i]] <- data.adjusted %>% as.matrix()
   }
   
   nimble.consts <- list(
-    N = model.df %>% nrow() - 168,
+    N = model.df %>% nrow() - 24,
     H = holiday.data %>% ncol(),
     W = nimble.data$Weather %>% ncol(),
     Hrs = 23,
@@ -80,100 +86,65 @@ dataToNimble <- function(model.df=model.data){
     consts = nimble.consts
   ))
 }
-formatted.data <- dataToNimble(model.data)
+formatted.data <- dataToNimble(model.data, lagged.data)
+#formatted.data <- dataToNimble(train_set, train_lags)
 
 model.code <- nimbleCode({
   #Priors for zero-inflated poisson distribution
   p ~ dunif(0,1)
-  lambda ~ dunif(0,10)
   
-  intercept ~ dunif(-2,10)
-  #Base regression x-matrix covariates
-  beta1 ~ dnorm(mean=0, sd=100)
-  beta2 ~ dnorm(mean=0, sd=100)
-  beta3 ~ dnorm(mean=0, sd=100)
-  beta4 ~ dnorm(mean=0, sd=100)
-  beta5 ~ dnorm(mean=0, sd=100)
-  beta6 ~ dnorm(mean=0, sd=100)
-  beta7 ~ dnorm(mean=0, sd=100)
+  intercept ~ dunif(-5,15)
+  # #Base regression x-matrix covariates
+  for(i in 1:7){
+    beta[i] ~ dnorm(mean=0, sd=5)
+  }
   
   #Holiday dummy coefficient parameters
   for(i in 1:H){
-    betaH[i] ~ dnorm(mean=0, sd=100)
+    betaH[i] ~ dnorm(mean=0, sd=5)
   }
-  
+
   #Weather Covariates
   for(i in 1:W){
-    omega[i] ~ dnorm(mean=0, sd=100)
+    omega[i] ~ dnorm(mean=0, sd=5)
   }
   
   #Hour fixed effects
   for(i in 1:Hrs){
-    eta[i] ~ dnorm(mean=0, sd=100)
+    eta[i] ~ dnorm(mean=0, sd=5)
   }
   
   #Day fixed effects
   for(i in 1:D){
-    delta[i] ~ dnorm(mean=0, sd=100)
+    delta[i] ~ dnorm(mean=0, sd=5)
   }
   
   #Monthly fixed effects
   for(i in 1:M){
-    mu[i] ~ dnorm(mean=0, sd=100)
+    mu[i] ~ dnorm(mean=0, sd=5)
   }
   
   #Two-way interaction coefficient parameters and preprocessing
   for(i in 1:Hrs){
     for(j in 1:D){
-      hrs.d[1:N,i*j] <- Hours[1:N,i]*Days[1:N,j]
-      eta.delta[i*j] ~ dnorm(mean=0, sd=100)
-    }
-  }
-  
-  for(i in 1:Hrs){
-    for(j in 1:M){
-      hrs.m[1:N,i*j] <- Hours[1:N,i]*Months[1:N,j]
-      eta.mu[i*j] ~ dnorm(mean=0, sd=100)
-    }
-  }
-  
-  for(i in 1:D){
-    for(j in 1:M){
-      d.m[1:N,i*j] <- Days[1:N,i]*Months[1:N,j]
-      delta.mu[i*j] ~ dnorm(mean=0, sd=100)
-    }
-  }
-  
-  #Three-way interaction
-  for(i in 1:Hrs){
-    for(j in 1:D){
-      for(k in 1:M){
-        hrs.d.m[1:N,i*j*k] <- Hours[1:N,i]*Days[1:N,j]*Months[1:N,k]
-        eta.delta.mu[i*j*k] ~ dnorm(mean=0, sd=100)
-      }
+      hrs.d[1:N,D*(i-1)+j] <- Hours[1:N,i]*Days[1:N,j]
+      eta.delta[D*(i-1)+j] ~ dnorm(mean=0, sd=5)
     }
   }
   
   #Auto regressive lagged effects
-  for(j in 1:(Hrs+1)){ #1:24
-    for(i in 1:(D+1)){ #1:7
-      psi[i*j] ~ dnorm(mean=0, sd=100)
-    }
+  for(j in 1:24){ #1:24
+    psi[j] ~ dnorm(mean=0, sd=5)
   }
   
   for(t in 1:N){
-    y[t] ~ dZIP(lambda, zeroProb = p)
+
+    lambda[t] <-  exp(intercept + (X[t, 1:7] %*% beta[1:7])[1,1] + inprod(lag.y[t,1:24], psi[1:24]) + inprod(Weather[t,1:W],omega[1:W])+
+                      inprod(Days[t,1:D],delta[1:D])+inprod(Months[t,1:M],mu[1:M])+inprod(Hours[t,1:Hrs],eta[1:Hrs])+
+                      inprod(Holidays[t,1:H],betaH[1:H])+inprod(hrs.d[t,1:(Hrs*D)],eta.delta[1:(Hrs*D)])
+                  )
     
-    #We are particularly interested in the posterior distribution of beta1 (and by implication, beta3)
-    lambda <- intercept+beta1*FullMoon[t,1]+beta2*DayTime[t,1]+beta3*FullMoon[t,1]*DayTime[t,1]+
-      beta4*Unemployment[t,1] + beta5*Year[t,1] + beta6*Year[t,1]^2 + beta7*Year[t,1]^3 +
-      t(Holidays[t,1:H])%*%betaH[1:H] + t(Weather[t,1:W])%*%omega[1:W] + 
-      #Time fixed effects
-      t(Hours[t,1:Hrs])%*%eta[1:Hrs]+ t(Days[t,1:D])%*%delta[1:D] + t(Months[t,1:M])%*%mu[1:M] + 
-      t(hrs.d[t,1:(Hrs*D)])%*%eta.delta[1:(Hrs*D)] + t(hrs.m[t,1:(Hrs*M)])%*%eta.delta[1:(Hrs*M)]+
-      t(d.m[t,1:(D*M)])%*%delta.mu[1:(D*M)]+t(hrs.d.m[t,1:(Hrs*D*M)])%*%eta.delta.mu[1:(Hrs*D*M)]+
-      #Auto regressive Lagged effects
-      t(lag.y[t,1:(7*24)])%*%psi[1:(7*24)]
+    y[t,1] ~ dZIP(lambda=lambda[t], zeroProb=p)
   }
 })
 
@@ -182,7 +153,7 @@ dZIP <- nimbleFunction(
                  zeroProb = double(), log = logical(0, default=0)){
     returnType(double())
     if(x != 0){
-      if (log) return(dpois(x, lambda, log=TRUE)) + log(1-zeroProb)
+      if (log) return(dpois(x, lambda, log=TRUE) + log(1-zeroProb))
       else return((1-zeroProb)*dpois(x, lambda, log=FALSE))
     }
     #Else x = 0
@@ -211,8 +182,13 @@ registerDistributions(list(
 ))
 
 #Run the model
-ZIPmodel <- nimbleModel(model.code, constants = formatted.data$consts)
+ZIPmodel <- nimbleModel(model.code, constants = formatted.data$consts, calculate = F)
 ZIPmodel$setData(formatted.data$data)
 cZIPmodel <- compileNimble(ZIPmodel)
-ZIPmcmc <- compile(ZIPmcmc, project=ZIPmodel)
-
+ZIPmcmc <- buildMCMC(ZIPmodel)
+cZIPmcmc <- compileNimble(ZIPmcmc, project=ZIPmodel)
+samples <- runMCMC(cZIPmcmc, niter=5000,
+                   nburnin = 250, thin=10,
+                   nchains = 1)
+summary(samples)
+plot(density(samples[,1]))

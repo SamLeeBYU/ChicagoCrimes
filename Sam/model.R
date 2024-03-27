@@ -4,6 +4,7 @@ library(glmnet)
 library(pscl)
 library(rstanarm)
 library(corrplot)
+library(arm)
 
 standardize <- function(v){
   (v-mean(v, na.rm=T))/sd(v, na.rm=T)
@@ -147,9 +148,7 @@ model = create_model()
 zero.infl.model <- create_model(zero.infl = T)
 
 zeroinfl.predict <- function(X.p, X, betas.p, beta){
-  p.reduced = X.p %*% betas.p
-  pi = exp(p.reduced)/(1+p.reduced)
-  
+  pi = invlogit(X.p%*%betas.p)
   (1-pi)*exp(X%*%beta)
 }
 
@@ -166,26 +165,31 @@ run_mle <- function(){
   hist(yhat)
   
   #Zero inflated poisson with Maximum Likelihood
-  #model.zeroinf <- zeroinfl(zero.infl.model, data=model.data)
+  model.zeroinf <- zeroinfl(zero.infl.model, dist="poisson", data=model.data)
   #save(model.zeroinf, file="model_zeroinf.RData")
   load("model_zeroinf.RData")
-  model.zeroinf$coefficients
-  summary(model.zeroinf)
   
-  # X = X.p = model.matrix(model.zeroinf)
-  # betas = model.zeroinf$coefficients$count %>% as.matrix()
-  # betas.p = model.zeroinf$coefficients$zero %>% as.matrix()
-  # 
-  # yhat.zeroinf <- zeroinfl.predict(X.p, X, betas.p, betas)
+  X = model.matrix(model.zeroinf); X.p = rep(1, nrow(X))
+  betas = model.zeroinf$coefficients$count %>% as.matrix()
+  betas.p = model.zeroinf$coefficients$zero %>% as.matrix()
+
+  yhat.zeroinf <- zeroinfl.predict(X.p, X, betas.p, betas)
   model.data$yhat.zeroinf <- c(rep(NA_real_, 24), model.zeroinf$fitted.values)
-  confint(model.data,)
   
+  rZIP <- function(n, lambda, zeroProb){
+    zeros <- rbinom(n, 1, prob=zeroProb)
+    ys <- rpois(n, lambda)
+    ys[zeros == 0] <- 0
+    return(ys)
+  }
+
   #Randomly select 1 week
-  r.index = sample(25:(nrow(model.data)-24*1), size=1)
-  r.week = model.data[r.index:(r.index+(24*1)),]
+  r.index = sample(25:(nrow(model.data)-24*7), size=1)
+  r.week = model.data[r.index:(r.index+(24*7)),]
   r.week %>%
     ggplot(aes(x=DateTime)) +
-    geom_line(aes(y=NumViolentCrimes), linewidth=1.2)+
+    geom_point(aes(y=NumViolentCrimes), size=1)+
+    geom_jitter(aes(y=NumViolentCrimes), size=1, width=0.1, height=0.1)+
     geom_line(aes(y=yhat.zeroinf), color="forestgreen", alpha=0.5, linewidth=1.2)+
     theme_minimal()
   

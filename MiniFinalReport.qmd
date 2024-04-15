@@ -196,27 +196,76 @@ top_features = sorted_features[:25]
 ![Image Description](output.png)
 We kind of expecting that that temperature will be an important factor, so we will check with SHAP as well to understand the impact of features on model predictions.
 ```{python, echo=TRUE, eval=FALSE}
-rf_model = RandomForestRegressor(n_estimators=20, random_state=42)
+#Fitting the model
+rf = RandomForestRegressor(n_estimators=200, random_state=42)
+rf.fit(X_train, y_train)
 
-# Fit the model
-rf_model.fit(X, y)
-
-# Get feature importances
-feature_importances = rf_model.feature_importances_
-
-# Map feature names to their respective importances
-feature_importance_map = dict(zip(X.columns, feature_importances))
-
-# Sort the features by importance
-sorted_features = sorted(feature_importance_map.items(), key=lambda x: x[1], reverse=True)
-
-# Extract top 25 features
-top_features = sorted_features[:25]
+#Getting SHAP values and plotting them
+explainer = shap.Explainer(rf, X_train)
+shap_values = explainer.shap_values(X_test[:100])
+shap.summary_plot(shap_values, features=X_test[:100], feature_names=X_train.columns)
 ```
 
-![Image Description](output.png)
+![Image Description](output2.png)
+In summary, thanks to the SHAP values analysis, it seems that the model seems to be influenced significantly by perceived temperature (feelslike) and actual temperature measures, with time-related features also playing a key role. Lower on the importance scale are some other weather-related features and atmospheric conditions.
 
 #Cluster analysis OR anomaly detection
 Also we wanted to apply cluster analysis to understand patterns or groups in how these factors correlate with crime rates
 
+```{python, echo=TRUE, eval=FALSE}
+#Starting clustering analysis
+kmeans = KMeans(n_clusters=3, n_init='auto')
+kmeans.fit(X)
+y_kmeans = kmeans.predict(X)
 
+hc = AgglomerativeClustering(distance_threshold=None, n_clusters=3)
+hc.fit(X)
+linkage_methods = ['single', 'complete', 'average', 'ward']
+
+# Plotting
+plt.figure(figsize=(12, 8))
+for i, method in enumerate(linkage_methods, 1):
+    plt.subplot(2, 2, i)
+    Z = linkage(X, method=method)
+    dendrogram(Z)
+    plt.title(f'Dendrogram ({method.capitalize()} Linkage)')
+    plt.xlabel('Samples')
+    plt.ylabel('Distance')
+
+plt.tight_layout()
+plt.show()
+```
+
+![Image Description](output3.png)
+It seems that they're 3 main clusters in the data. This is confirm with the "elbow method" technique, since around 3 or 4 it seems to be the place where the rate of decrease in WCSS slows down significantly. 
+
+```{python, echo=TRUE, eval=FALSE}
+# Calculating WCSS by K number of clusters for plot
+kmeans_per_k = [KMeans(n_clusters=k, n_init='auto', random_state=42).fit(X)
+                for k in range(1, 10)]
+inertias = [model.inertia_ for model in kmeans_per_k]
+
+
+#Plotting WCSS by number of clusters
+plt.figure(figsize=(10,4))
+plt.plot(np.arange(len(inertias))+1,inertias,marker="o")
+plt.xlabel('Number of Clusters, K')
+plt.ylabel('WCSS')
+```
+ 
+ ![Image Description](output4.png)
+ After defining the number of clusters, we can start analyzing the major factors with these 3 clusters.
+ 
+```{python, echo=TRUE, eval=FALSE}
+#Selecting factors to see
+plot_df = pd.DataFrame(X[['feelslike', 'Year', 'YrMon', 'Date', 'tempmax', 'IsWeekend', 'feelslikemax', 'temp', 'DayOfYear', 'WeekOfYear']])
+
+#Plotting
+plot_df['clusters'] = y_kmeansf Clusters, K')
+plt.ylabel('WCSS')
+sns.pairplot(plot_df, hue='clusters', palette='Dark2')
+```
+  ![Image Description](output5.png)
+From the clustering analysis, we can learn that the feature relationships, distribution, and seasonality. 
+
+  

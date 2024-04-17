@@ -1,0 +1,271 @@
+---
+title: "Mini Final Report"
+author: "Sam Lee, Jeffry Troll"
+format: pdf
+editor: visual
+---
+
+## Project Description
+
+The Chicago Police Department is concern about a the relantionship of crime rates in the District 11. They challenged the Data Insight & Strategy Consultants (DISC) to analizee crime data analysis with elements of human behavior, meteorology, and perhaps, a touch of the mystical. In this project we want to explore innovative approaches to predict and, consequently, reduce the rate of violent crimes within the assigned district. Also, we want to determine if and how various factors influence the rate of violent crimes in Chicago. This will help the Chicago Police Department to plan ahead with public outreach, community events, and other positive means of deterring violent crimes during particularly vulnerable periods.
+
+```{r, echo=TRUE, eval=FALSE}
+library(tidyverse)
+library(ggmap)
+library(lubridate)
+library(animation)
+
+crimes <- read_csv("raw_data/Crimes.csv")
+moons <- read_csv("raw_data/full_moon.csv") %>%
+  mutate(Day = dmy(FullMoonDates))
+holidays <- read_csv("raw_data/holidays.csv") %>%
+  mutate(Day = ymd(Date))
+weather <- read_csv("raw_data/weather.csv") %>%
+  mutate(Day = ymd(datetime))
+#weather.covariates = colnames(weather) %>% 
+#  setdiff(c("name", "datetime", "stations", "Day"))
+#maps.api.key = read_file("maps_api.txt")
+
+crimes$Date <- mdy_hms(crimes$Date)
+crimes$Day <- as.Date(crimes$Date)
+crimes$Day <- as.Date(crimes$Date)
+
+cutoff.date = max(
+  c(min(crimes$Day), min(holidays$Day), min(weather$Day), min(moons$Day))
+)
+
+crimes.cleaned <- crimes %>% 
+  left_join(weather) %>%
+  left_join(holidays) %>%
+  left_join(moons) %>%
+  mutate(
+    Holiday = ifelse(is.na(Holiday), "", Holiday),
+    `Day of Week` = wday(Day),
+    FullMoon = ifelse(is.na(FullMoonDates),0,1)
+  ) %>% filter(
+    Day >= cutoff.date
+  )
+  
+factors = c("Date", "Primary Type", "Location Description", "Arrest",
+            "Domestic", "Community Area", "Year", "Latitude", "Longitude",
+            "Day", weather.covariates, "FullMoon")
+
+crimes.cleaned <- crimes.cleaned[,factors]
+write_csv(crimes.cleaned, "crimes_cleaned.csv")
+```
+
+```{r, echo=TRUE, eval=FALSE}
+summary(data_nm)
+skim(data_nm)
+head(data_nm)
+```
+
+## Data Acquisition
+
+DISC already provided some collections of datasets, which are the following:
+
+Crimes.csv: This dataset is a detailed record of every crime reported in District 11 in Chicago since 2001, including date, type, location, and outcome. It can be found at https://richardson.byu.edu/data contest/2024/Crimes.csv.
+
+Since we’ll focus specifically on violent crimes, we need to define what's considered a violent crime, we use official definition  found in the FBI and Chicago websites. These can be found at https://ucr.fbi.gov/crime-in-the-u.s/2018/crime-in-the-u.s.-2018/topic-pages/violent-crime#:~:text=Definition,force%20or%20threat%20of%20force. and https://www.chicago.gov/city/en/sites/vrd/home/violence-victimization.html.
+
+2. Weather.csv: Daily weather data since 2010, capturing temperature, precipitation, wind speed, and other meteorological variables. This dataset can be found at https://richardson.byu.edu/data contest/2024/weather.csv.
+
+3. Holidays.csv: A dataset listing major public holidays since 2010. This dataset can
+be found at https://richardson.byu.edu/data contest/2024/holidays.csv.
+
+4. Full moon.csv: Contains the dates of all full moons since 2005. This dataset can
+be found at https://richardson.byu.edu/data contest/2024/full moon.csv.
+
+Since we noticed the inconsistency of the range in the dates between these datasets we decided to only use from 2010 to 2024.
+Being aware of sacrificing 10 years of data, we integrated monthly unemployment data for Chicago. This dataset can be found at
+
+Finally we combined those datasets in order to meticulously structure the count of violent crime by hour along with the other variables such as presence of full moon, daylight status, weather conditions, and social-economic indicators.
+
+[ADD API and missing link]
+
+## Data Acquisition
+
+```{r, echo=TRUE, eval=FALSE}
+allcrimes = sort(crimes$`Primary Type`) %>% unique()
+violence.key <- c(0,1,1,1,0,1,0,1,0,0,0,1,1,0,1,1,0,0,0,0,
+                  0,0,0,0,0,0,0,0,0,0,1,0,0,0,0)
+mapping <- setNames(seq_along(unique(allcrimes)), unique(allcrimes))
+crimes$Violent <- violence.key[unname(mapping[crimes$`Primary Type`])]
+
+register_google(key=maps.api.key)
+chicago_map <- get_map(location = c(lon=-87.72, lat = 41.881832),
+                       zoom = 13)
+
+ggmap(chicago_map) +
+  geom_point(data = filter(crimes, Year==2023),
+             aes(x = Longitude, y = Latitude, color=as.factor(Violent)),
+             alpha=0.2) +
+  labs(title = "Crimes in District 11 During 2023")
+
+
+marginal_crimes <- function(df, year=2023){
+  df %>% filter(Year %in% year) %>%
+    group_by(Day) %>% summarize(
+    n_crimes = n(),
+    violent_crimes = sum(Violent)
+  ) %>%
+    ggplot()+
+    geom_line(aes(x=Day, y=n_crimes))+
+    geom_line(aes(x=Day, y=violent_crimes), color="red")+
+    labs(
+      x="Date",
+      y="# of Crimes"
+    )+
+    theme_minimal()
+}
+marginal_crimes(crimes, year=2022:2024)
+
+write_csv(crimes.cleaned, "crimes_cleaned.csv")
+```
+
+## Data Analysis,  Model Building, and Interpretation
+
+Main Model
+
+$y \sim MVN(\textbf{X}\mathbf{\beta}, \sigma^2\textbf{R}({\phi},{\omega}))$, $\textbf{y} = \textbf{X}\mathbf{\beta} + \epsilon$, where $\epsilon \sim N(0,\sigma^2R({\phi},{\omega}))$
+
+$\textbf{y} = \begin{bmatrix} WHC_{1}\\ WHC_{2}\\ \vdots \\ WHC_{528} \end{bmatrix}$,
+
+$\textbf{X} = \begin{bmatrix} 1 & x_{11} & x_{12} \\ 1 & x_{21} & x_{22} \\ \vdots & \vdots & \vdots \\ 1 & x_{5281} & x_{5282} \end{bmatrix}$, $\boldsymbol{\beta}= \begin{bmatrix} \beta_{0} \\ \beta_{Yield} \\ \beta_{EC} \end{bmatrix}$,
+
+$\textbf{R} = \begin{bmatrix} 1 & \rho(s_1,s_2) & \rho(s_1,s_3) & \dots & \rho(s_1,s_{528}) \\ \rho(s_2,s_1) & 1 & \rho(s_2,s_3) & \dots & \rho(s_2,s_{528}) \\ \vdots & \vdots & \ddots & 1 & \rho(s_{527},s_{528}) \\ \rho(s_{528},s_1) & \rho(s_{528},s_2) & \rho(s_{528},s_3) & \dots & 1\end{bmatrix}$, where $\rho(s_i, s_j) = exp\{-\frac{||s_i-s_j||}{\phi}\}$.
+
+Within our model, we have 5 parameters.
+
+-   $\beta_0$ represents the intercept, which is the expected value when all other coefficients within our model are zero.\
+
+-   $\beta_{Yield} \text{ and } \beta_{EC}$ represent the estimated change in WHC when Yield and EC are increased by 1. They are the coefficients of our model.
+
+-   $\sigma^2$ represents the unbiased maximum likelihood for the variance.
+
+-   $\textbf{R}$ represents the correlation matrix between observations from the data, where we have chosen an exponential correlation function.
+
+-   ${\phi}$ represents the parameter used in the exponential correlation calculated from the data.
+
+-   ${\omega}$ represents the variance "nugget" to capture same-location variability.
+
+[Can you add the model that we use and the parameters and stuff here]
+
+#Predictive model
+
+
+#Implementation of at least four standard supervised machine learning models
+We tried a variety of model to get try to get better predictions and compare those results. Indeed, we fit a Random Forest model, Decision Tree, Gradient boosting and KNN model and already mentioned Poisson model.
+
+
+#Significant or innovative feature engineering
+
+Since we noticed that that time was an important factor, we considered to add generate more variables that can handle the seasonality presented in the data. 
+
+```{python,echo=TRUE, eval=FALSE}
+data['Month_Sin'] = np.sin(2 * np.pi * data['Month']/12)
+data['Month_Cos'] = np.cos(2 * np.pi * data['Month']/12)
+data['Day_Sin'] = np.sin(2 * np.pi * data['Day']/data['Date'].dt.days_in_month)
+data['Day_Cos'] = np.cos(2 * np.pi * data['Day']/data['Date'].dt.days_in_month)
+```
+
+This feature engineering lies in capturing temporal patterns in a way that is more suitable for machine learning models, like this Random Forest. By encoding months and days as cyclical features, the model can understand their cyclic nature and learn patterns effectively, such as monthly or daily seasonality which is present in the crime data because of weather and another factors.
+
+#An exploration of variable importance using SHAP
+
+As we mentioned before, we used a Decision Tree to understand better the factors that impact the count of violent crime.
+```{python, echo=TRUE, eval=FALSE}
+rf_model = RandomForestRegressor(n_estimators=20, random_state=42)
+
+# Fit the model
+rf_model.fit(X, y)
+
+# Get feature importances
+feature_importances = rf_model.feature_importances_
+
+# Map feature names to their respective importances
+feature_importance_map = dict(zip(X.columns, feature_importances))
+
+# Sort the features by importance
+sorted_features = sorted(feature_importance_map.items(), key=lambda x: x[1], reverse=True)
+
+# Extract top 25 features
+top_features = sorted_features[:25]
+```
+
+![Image Description](output.png)
+We kind of expecting that that temperature will be an important factor, so we will check with SHAP as well to understand the impact of features on model predictions.
+```{python, echo=TRUE, eval=FALSE}
+#Fitting the model
+rf = RandomForestRegressor(n_estimators=200, random_state=42)
+rf.fit(X_train, y_train)
+
+#Getting SHAP values and plotting them
+explainer = shap.Explainer(rf, X_train)
+shap_values = explainer.shap_values(X_test[:100])
+shap.summary_plot(shap_values, features=X_test[:100], feature_names=X_train.columns)
+```
+
+![Image Description](output2.png)
+In summary, thanks to the SHAP values analysis, it seems that the model seems to be influenced significantly by perceived temperature (feelslike) and actual temperature measures, with time-related features also playing a key role. Lower on the importance scale are some other weather-related features and atmospheric conditions.
+
+#Cluster analysis OR anomaly detection
+Also we wanted to apply cluster analysis to understand patterns or groups in how these factors correlate with crime rates
+
+```{python, echo=TRUE, eval=FALSE}
+#Starting clustering analysis
+kmeans = KMeans(n_clusters=3, n_init='auto')
+kmeans.fit(X)
+y_kmeans = kmeans.predict(X)
+
+hc = AgglomerativeClustering(distance_threshold=None, n_clusters=3)
+hc.fit(X)
+linkage_methods = ['single', 'complete', 'average', 'ward']
+
+# Plotting
+plt.figure(figsize=(12, 8))
+for i, method in enumerate(linkage_methods, 1):
+    plt.subplot(2, 2, i)
+    Z = linkage(X, method=method)
+    dendrogram(Z)
+    plt.title(f'Dendrogram ({method.capitalize()} Linkage)')
+    plt.xlabel('Samples')
+    plt.ylabel('Distance')
+
+plt.tight_layout()
+plt.show()
+```
+
+![Image Description](output3.png)
+It seems that they're 3 main clusters in the data. This is confirm with the "elbow method" technique, since around 3 or 4 it seems to be the place where the rate of decrease in WCSS slows down significantly. 
+
+```{python, echo=TRUE, eval=FALSE}
+# Calculating WCSS by K number of clusters for plot
+kmeans_per_k = [KMeans(n_clusters=k, n_init='auto', random_state=42).fit(X)
+                for k in range(1, 10)]
+inertias = [model.inertia_ for model in kmeans_per_k]
+
+
+#Plotting WCSS by number of clusters
+plt.figure(figsize=(10,4))
+plt.plot(np.arange(len(inertias))+1,inertias,marker="o")
+plt.xlabel('Number of Clusters, K')
+plt.ylabel('WCSS')
+```
+ 
+ ![Image Description](output4.png)
+ After defining the number of clusters, we can start analyzing the major factors with these 3 clusters.
+ 
+```{python, echo=TRUE, eval=FALSE}
+#Selecting factors to see
+plot_df = pd.DataFrame(X[['feelslike', 'Year', 'YrMon', 'Date', 'tempmax', 'IsWeekend', 'feelslikemax', 'temp', 'DayOfYear', 'WeekOfYear']])
+
+#Plotting
+plot_df['clusters'] = y_kmeansf Clusters, K')
+plt.ylabel('WCSS')
+sns.pairplot(plot_df, hue='clusters', palette='Dark2')
+```
+  ![Image Description](output5.png)
+From the clustering analysis, we can learn that the feature relationships, distribution, and seasonality. 
+
+  

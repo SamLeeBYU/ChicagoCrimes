@@ -166,6 +166,9 @@ run_mle <- function(){
   
   #Zero inflated poisson with Maximum Likelihood
   model.zeroinf <- zeroinfl(zero.infl.model, dist="poisson", data=model.data)
+  model.pois <- glm(model, family=poisson(link="log"), data=model.data)
+  predictions = predict(model.pois, type="response", se.fit = T)
+  #model.pois.pred <- confint(model.pois, interval="prediction")
   #save(model.zeroinf, file="model_zeroinf.RData")
   load("model_zeroinf.RData")
   
@@ -182,15 +185,50 @@ run_mle <- function(){
     ys[zeros == 0] <- 0
     return(ys)
   }
+  
+  confidence_level <- 0.95  # Change as needed
+  z_score <- qnorm((1 + confidence_level) / 2)
+  lower_bound <- exp(log(model.zeroinf$fitted.values) - z_score * predictions$se.fit)
+  upper_bound <- exp(log(model.zeroinf$fitted.values) + z_score * predictions$se.fit)
+  
+  # Create a dataframe with predictions and intervals
+  prediction_intervals <- data.frame(
+    DateTime = model.data[25:(nrow(model.data)),]$DateTime,
+    NumViolentCrimes = model.data[25:(nrow(model.data)),]$NumViolentCrimes,
+    estimate = model.zeroinf$fitted.values,
+    lower_bound = lower_bound,
+    upper_bound = upper_bound
+  )
+  
+  #Bootstrap sampling of means to get predictive distribution
+  bootstrap.intervals <- sapply(1:nrow(prediction_intervals), function(t){
+    lambdas = seq(from = prediction_intervals[t,4], to = prediction_intervals[t,5], length.out = 100)
+    counts = rpois(1000, sample(lambdas, replace=T)) %>% quantile(c(0.025, 0.975))
+    zeros = rbinom(1000, 1, invlogit(model.zeroinf$coefficients$zero))
+    counts[counts == 1] = 0
+    counts
+  }) %>% t()
+ 
+  prediction_intervals <- cbind(prediction_intervals, bootstrap.intervals) %>% 
+    as.data.frame()
 
   #Randomly select 1 week
-  r.index = sample(25:(nrow(model.data)-24*7), size=1)
-  r.week = model.data[r.index:(r.index+(24*7)),]
+  r.index = sample(1:(nrow(model.data)-24*14-100000), size=1)
+  r.week = prediction_intervals[r.index:(r.index+(24*14)),]
   r.week %>%
     ggplot(aes(x=DateTime)) +
     geom_point(aes(y=NumViolentCrimes), size=1)+
-    geom_jitter(aes(y=NumViolentCrimes), size=1, width=0.1, height=0.1)+
-    geom_line(aes(y=yhat.zeroinf), color="forestgreen", alpha=0.5, linewidth=1.2)+
+    geom_jitter(aes(y=NumViolentCrimes), size=1, width=0.05, height=0.05)+
+    labs(
+      y = "Number of Violent Crimes",
+      x = "Time (hr)"
+    )+
+    geom_line(aes(y=estimate), color="forestgreen", alpha=0.5, linewidth=1.2)+
+    geom_ribbon(aes(ymin=lower_bound, ymax=upper_bound), 
+                color=NA, fill="#14DD32", alpha=0.2)+
+    geom_ribbon(aes(ymin=`2.5%`, ymax=`97.5%`), 
+                color=NA, fill="forestgreen", alpha=0.1)+
+    ggtitle(str_c("Violent Crimes per Hour in ", year(r.week$DateTime)))+
     theme_minimal()
   
   # model.data %>% dplyr::select(NumViolentCrimes, yhat.zeroinf) %>% View()
@@ -202,4 +240,7 @@ run_mle <- function(){
   # samples = as.matrix(model.poisson.bayes)
   # plot(density(samples[,1]))
   
+  
+  coefficients <- model.zeroinf$coefficients$count
+  coef_names <- names(coefficients)
 }

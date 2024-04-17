@@ -106,12 +106,12 @@ crimes.cleaned <- crimes.cleaned %>% group_by(Violent, Date, hour) %>%
 
 #Assume unemployment rate in Chicago's 11th police district is proportional
 #to the unemployment rate in the Chicago area
-unem <- read_csv("../Data/chicago-unemployment.csv") %>%
-  select(Year, Label, Value) %>%
+unem <- read_csv("Data/chicago-unemployment.csv") %>%
+  dplyr::select(Year, Label, Value) %>%
   mutate(
     Date = ym(Label),
     Month = month.name[month(Date)]
-  ) %>% select(-Label) %>% setNames(c(
+  ) %>% dplyr::select(-Label) %>% setNames(c(
     "Year", "Unemployment", "Date", "Month"
   )) %>% arrange(Date)
 
@@ -120,13 +120,13 @@ crimes.cleaned$Month <- month.name[month(crimes.cleaned$Date)]
 #Add in monthly unemployment
 crimes.cleaned <- crimes.cleaned %>%
   left_join(
-    unem %>% select(-Date), by=join_by(Year, Month)
+    unem %>% dplyr::select(-Date), by=join_by(Year, Month)
   )
 
 write_csv(crimes.cleaned, "crimes_cleaned.csv")
 ```
 
-```{r fig.width=8, fig.height=8, message=F, warning=F, echo=F}
+```{r fig.width=12, fig.height=8, message=F, warning=F, echo=F}
 
 register_google(key=maps.api.key)
 chicago_map <- get_map(location = c(lon=-87.72, lat = 41.881832),
@@ -157,7 +157,16 @@ marginal_crimes <- function(df, year=2023){
 marginal_crimes(crimes.cleaned, year=2023)
 
 #This is why we should use a zero-inflated poisson
-crimes.cleaned$NumViolentCrimes %>% hist(main="Distribution of Violent Crimes by Hour")
+#crimes.cleaned$NumViolentCrimes %>% hist(main="Distribution of Violent Crimes by Hour")
+
+crimes.cleaned %>% ggplot()+
+  geom_histogram(aes(x=NumViolentCrimes), binwidth=1, fill="darkblue", alpha=0.75)+
+  scale_x_continuous(breaks=0:8)+
+  labs(
+    x="Number of Violent Crimes per Hour",
+    y="Frequency"
+  )+
+  theme_minimal()
 
 unem %>% ggplot(aes(x=Date, y=Unemployment))+
   geom_point()+
@@ -181,3 +190,49 @@ unem %>% ggplot(aes(x=Date, y=Unemployment))+
 <!--              aes(x = Longitude, y = Latitude, color=hour), alpha=0.2) + -->
 <!--   labs(title = "Crimes in District 11 During 2023") -->
 <!-- ``` -->
+
+```{r fig.height=6}
+load("model_zeroinf.RData")
+
+coefficients <- coef(summary(model.zeroinf))$count %>% as.matrix()
+
+effects = c("Full Moon", "Day Time", "Temperature", "Rain", "Unemployment", "New Year's Day", "Snowfall", "Wind Gusts",
+            "Cloud Cover")
+
+# Create a data frame for plotting
+plot_data <- data.frame(
+  term = rownames(coefficients),
+  estimate = coefficients[,1],
+  ci_low = coefficients[,1] - 1.96 * coefficients[,2],
+  ci_high = coefficients[,1] + 1.96 * coefficients[,2],
+  significance = ifelse(coefficients[,4] < 0.05, "Significant", "Not Significant")
+)
+
+plot_data$term =c("Intercept", "Full Moon", "Day Time", "Unemployment", "Christmas Day", "Christmas Eve", "Columbus Day", "Halloween",
+  "Independence Day", "Labor Day", "MLK Jr. Day", "Memorial Day", "New Year's Day", "NYE", "President's Day", "St. Patrick's Day",
+  "Thanksgiving Day", "Valentine's Day", "Veterans Day", "Year", "Year^2", "Year^3", "April", "August", "December", "February",
+  "July", "June", "March", "May", "November", "October", "September", "Mon", "Sat", "Sun", "Thurs", "Tues", "Wed", "12:00 a.m.", "1:00 a.m.", "2:00 a.m.", "3:00 a.m.", "4:00 a.m.", "5:00 a.m.", "6:00 a.m.", "7:00 a.m.", "8:00 a.m.", "9:00 a.m.", "10 a.m.", "11:00 a.m.", "12:00 p.m.", "1:00 p.m.", "2:00 p.m.", "3:00 p.m.", "4:00 p.m.", "5:00 p.m.", "6:00 p.m.", "7:00 p.m.", "9:00 p.m.", "10:00 p.m.", "11:00 p.m.", "Temperature", "Relative Humidity", "Rain (in.)", "Snowfall (mm.)", "Snowdepth", "Cloud Cover", "Wind Gusts", "Solar Radiation", str_c("Previous ", 1:24, "-hour Violent Crimes"), "Full Moon and Day Time", str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 12:00 a.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 1:00 a.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 2:00 a.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 3:00 a.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 4:00 a.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 5:00 a.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 6:00 a.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 7:00 a.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 8:00 a.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 9:00 a.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 10:00 a.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 11:00 a.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 12:00 p.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 1:00 p.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 2:00 p.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 3:00 p.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 4:00 p.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 5:00 p.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 6:00 p.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 7:00 p.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 9:00 p.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 10:00 p.m."), str_c(c("Mon", "Sat", "Sun", "Thurs", "Tues", "Wed"), " at 11:00 p.m."))
+
+plot_data <- plot_data %>% filter(str_detect(term, paste(effects, collapse = "|"))) %>%
+  arrange(desc(estimate))
+
+# plot_data <- plot_data %>% arrange(desc(abs(estimate))) %>% head(30)
+
+# Plot
+ggplot(plot_data, aes(x = reorder(term, estimate), y = estimate, ymin = ci_low, ymax = ci_high)) +
+  geom_pointrange(aes(color = significance), size = 0.5) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black", size = 0.5) +
+  coord_flip() +
+  theme_minimal() +
+  theme(legend.position = "top") +
+  labs(x = "Coefficient", y = "Estimate", title = "Caterpillar Plot of Coefficients") +
+  scale_color_manual(values = c("green" = "darkblue", "red" = "firebrick"),
+                     labels = c("Significant", "Not Significant")) +
+  guides(color = guide_legend(title = "Significance")) +
+  geom_text(data = plot_data[plot_data$significance == "Significant", ],
+            aes(label = round(estimate, 2), y = estimate + 0.3),
+            hjust = 0.5, color = "darkblue", size = 3) +
+  geom_text(data = plot_data[plot_data$significance == "Not Significant", ],
+            aes(label = round(estimate, 2), y = estimate + 0.3),
+            hjust = 0.5, color = "firebrick", size = 3)
+```

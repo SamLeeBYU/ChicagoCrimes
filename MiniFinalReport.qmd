@@ -397,6 +397,37 @@ This model explains the effects of the factors included in the model quite well,
 
 Implementation of at least four standard supervised machine learning models We tried a variety of model to get try to get better predictions and compare those results. Indeed, we fit a Random Forest model, Decision Tree, Gradient boosting and KNN model and already mentioned Poisson model.
 
+KNN
+```{python,echo=TRUE, eval=FALSE}
+knn_reg = KNeighborsRegressor(n_neighbors=20)
+knn_reg.fit(X_train_scaled, y_train)
+```
+
+Mean Absolute Error: 3.495668789808917
+Mean Squared Error: 18.586433121019112
+Root Mean Squared Error: 4.311198571281438
+R-squared: 0.018065556289428297
+
+![Image Description](output6.png)
+Random Forest
+```{python,echo=TRUE, eval=FALSE}
+knn_reg = KNeighborsRegressor(n_neighbors=20)
+knn_reg.fit(X_train_scaled, y_train)
+```
+
+Mean Absolute Error: 3.254050955414013
+Mean Squared Error: 16.357082547770705
+Root Mean Squared Error: 4.044389020330599
+R-squared: 0.1358437281809961
+
+![Image Description](output7.png)
+Gradient boosting
+
+Mean Absolute Error: 3.2315556864642456
+Mean Squared Error: 16.022146503614472
+Root Mean Squared Error: 4.002767355669634
+R-squared: 0.15353863693813885
+
 # Significant or innovative feature engineering
 
 Since we noticed that that time was an important factor, we considered to add generate more variables that can handle the seasonality presented in the data.
@@ -448,7 +479,8 @@ shap.summary_plot(shap_values, features=X_test[:100], feature_names=X_train.colu
 
 ![Image Description](output2.png) In summary, thanks to the SHAP values analysis, it seems that the model seems to be influenced significantly by perceived temperature (feelslike) and actual temperature measures, with time-related features also playing a key role. Lower on the importance scale are some other weather-related features and atmospheric conditions.
 
-#Cluster analysis OR anomaly detection Also we wanted to apply cluster analysis to understand patterns or groups in how these factors correlate with crime rates
+# Cluster analysis OR anomaly detection 
+Also we wanted to apply cluster analysis to understand patterns or groups in how these factors correlate with crime rates
 
 ```{python, echo=TRUE, eval=FALSE}
 #Starting clustering analysis

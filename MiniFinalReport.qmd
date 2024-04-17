@@ -44,7 +44,7 @@ We will first introduce the data used for this analysis, followed by some EDA we
 
 To conduct a comprehensive analysis of violent crime in Chicago's District 11, DISC acquired data from the following reputable sources:
 
--   Chicago Crime Data: Detailed records of crimes reported in District 11 since 2001 were obtained from the official City of Chicago Data Portal (https://data.cityofchicago.org/Public-Safety/Crimes-2001-to-Present/ijzp-q8t2). We opted for this source to ensure data accuracy and consistency with official crime reporting procedures. Additionally, a valuable Kaggle resource (https://www.kaggle.com/datasets/chicago/chicago-crime) provided insights into the data structure and potential applications.
+-   Chicago Crime Data: Detailed records of crimes reported in District 11 since 2001 were obtained from the official City of Chicago Data Portal <https://data.cityofchicago.org/Public-Safety/Crimes-2001-to-Present/ijzp-q8t2>. We opted for this source to ensure data accuracy and consistency with official crime reporting procedures. Additionally, a valuable Kaggle resource <https://www.kaggle.com/datasets/chicago/chicago-crime> provided insights into the data structure and potential applications.
 
 -   Weather Data: Daily weather data for Chicago from 2010 to 2024, encompassing temperature, precipitation, wind speed, and other relevant meteorological variables, was originally retrieved from Visual Crossing (https://www.visualcrossing.com/). However, we asserted that to model the demand for violent crime more granually, as crimes were recorded by the hour; as such, we imported weather data from an historical weather API, <https://open-meteo.com/>.
 
@@ -52,7 +52,7 @@ To conduct a comprehensive analysis of violent crime in Chicago's District 11, D
 
 -   Holiday Data: This data was obtained via ChatGPT for initial exploration, followed by cross-referencing with reliable online resources like national holiday calendars and local Chicago event listings.
 
--   Full Moon Data: Dates of full moons since 2005 were sourced from Full Moon Info (https://www.fullmoonology.com/full-moon-calendar-2015/), a website recognized for its comprehensive moon phase calendar. This data serves as a starting point for exploring potential lunar influences on crime rates.
+-   Full Moon Data: Dates of full moons since 2005 were sourced from Full Moon Info <https://www.fullmoonology.com/full-moon-calendar-2015/>, a website recognized for its comprehensive moon phase calendar. This data serves as a starting point for exploring potential lunar influences on crime rates.
 
 ## Data Harmonization and Feature Engineering:
 
@@ -79,8 +79,10 @@ holidays <- read_csv("Sam/Data/holidays.csv") %>%
   mutate(Date = ymd(Date))
 
 #Weather Data from API
-weather.data <- fromJSON("Sam/Data/weather.json")["hourly"] %>% as.data.frame()
-weather.data$hourly.time = weather.data$hourly.time %>% str_replace("T", " ")
+weather.data <- fromJSON("Sam/Data/weather.json")["hourly"] %>% 
+  as.data.frame()
+weather.data$hourly.time = weather.data$hourly.time %>% 
+  str_replace("T", " ")
 weather.data$hourly.time = ymd_hm(weather.data$hourly.time)
 weather.data <- weather.data %>%
   mutate(
@@ -116,9 +118,10 @@ crimes.cleaned <- crimes %>%
     Date >= cutoff.date & Date <= upper.cutoff
   )
   
-factors = c("DateTime", "Date", "Primary Type", "Location Description", "Arrest",
-            "Domestic", "Community Area", "Year", "Latitude", "Longitude",
-            "FullMoon", "DayofWeek", "Holiday", "hour", weather.covariates)
+factors = c("DateTime", "Date", "Primary Type", "Location Description",
+            "Arrest", "Domestic", "Community Area", "Year", "Latitude",
+            "Longitude", "FullMoon", "DayofWeek", "Holiday", "hour",
+            weather.covariates)
 
 crimes.cleaned <- crimes.cleaned[,factors]
 
@@ -127,11 +130,15 @@ crimes.cleaned <- crimes.cleaned[,factors]
 #robbery, and aggravated assault.
 
 #https://www.chicago.gov/city/en/sites/vrd/home/violence-victimization.html
-allcrimes = crimes.cleaned$`Primary Type` %>% unique() %>% sort()
+allcrimes = crimes.cleaned$`Primary Type` %>% 
+  unique() %>% 
+  sort()
 violence.key <- c(0,1,1,1,0,1,0,1,0,0,0,1,1,0,1,1,0,0,0,0,
                   0,0,0,0,0,0,0,0,0,0,1,0,0,0,0)
 mapping <- setNames(seq_along(unique(allcrimes)), unique(allcrimes))
-crimes.cleaned$Violent <- violence.key[unname(mapping[crimes.cleaned$`Primary Type`])]
+crimes.cleaned$Violent <- violence.key[
+  unname(mapping[crimes.cleaned$`Primary Type`])
+]
 
 crimes.cleaned <- crimes.cleaned %>%
   mutate(
@@ -167,7 +174,7 @@ Note that we define `NumViolentCrimes` as the number of violent crimes that happ
 
 # EDA
 
-Summary Statistics
+**Summary Statistics**
 
 ```{r summary-stats, echo=F}
 summary.factors = c("Community Area", "Latitude", "Longitude",
@@ -191,25 +198,29 @@ sum.stats.table(crimes.cleaned[summary.factors[4:length(summary.factors)]],
 
 Note that summary statistics come from hourly records of crimes. The NA values on the location summary statistics are the hours where no crimes were observed.
 
-Is there any spatial correlation between where crimes are occurring?
+**Is there any spatial correlation between where crimes are occurring?**
 
-```{r spatial-map, fig.width=12, fig.height=8, message=F, warning=F, echo=F}
+```{r spatial-map, fig.width=12, fig.height=7, message=F, warning=F, echo=F}
 register_google(key=maps.api.key)
 chicago_map <- get_map(location = c(lon=-87.72, lat = 41.881832),
                        zoom = 13)
 
+crimes.map <- crimes.cleaned %>% filter(Year == 2023) %>%
+  mutate(
+    Violent = as.factor(Violent)
+  )
 ggmap(chicago_map) +
-  geom_point(data = filter(crimes.cleaned, Year==2023),
-             aes(x = Longitude, y = Latitude, color=as.factor(Violent)),
+  geom_point(data = crimes.map,
+             aes(x = Longitude, y = Latitude, color=Violent),
              alpha=0.2) +
   labs(title = "Crimes in District 11 During 2023")
 ```
 
-Based on the map above, since District 11 is such a small area, and since we don't have other data on the where crime is occurring in other districts, from this preliminary visual assessment, it doesn't look like there is a strong hotspot for violent crime throughout the year.
+Based on the map above, since District 11 is such a small area, and since we don't have other data on the where crime is occurring in other districts, from this preliminary visual assessment, it doesn't look like there are any strong hotspots for violent crime throughout the year.
 
-How do the number of violent crimes generally fluctuate throughout the year?
+**How do the number of violent crimes generally fluctuate throughout the year?**
 
-```{r between-within-trends, echo=F, fig.width=14, fig.height=8}
+```{r between-within-trends, echo=F, fig.width=14, fig.height=7}
 crimes.cleaned %>%
   filter(Year %in% c(2010, 2015, 2020, 2023)) %>%
   mutate(
@@ -233,7 +244,56 @@ crimes.cleaned %>%
 
 While it's hard to read in between the lines (literally), this graph shows that crime generally peaks during the summer months, while at the same time, crime has generally been decreasing over the pass decade.
 
-## Data Analysis, Model Building, and Interpretation
+**What does the distribution of hourly violent crimes look like?**
+
+```{r violent-crimes-hist, echo=F, fig.width=14, fig.height=7}
+crimes.cleaned %>% ggplot()+
+  geom_histogram(aes(x=NumViolentCrimes), binwidth=1, fill="darkblue", alpha=0.75)+
+  scale_x_continuous(breaks=0:8)+
+  labs(
+    x="Number of Violent Crimes per Hour",
+    y="Frequency"
+  )+
+  theme_minimal()
+```
+
+This appears that the distribution of the hourly violent crimes is Poisson-distributed. Specifically, since there's a (greater than expected) concentration of counts at 0, we first thought about modeling hourly violent number of crimes via a zero-inflated Poisson model (ZIP).
+
+**How does unemployment fluctuate throughout the observed decade in Chicago?**
+
+```{r unemployment, echo=F, message=F, warning=F, fig.width=14, fig.height=7}
+unem %>% ggplot(aes(x=Date, y=Unemployment))+
+  geom_point()+
+  geom_line()+
+  labs(
+    title="Monthly Unemployment Rates from the BLS"
+  )+
+  theme_minimal()+
+  geom_smooth(method="gam")
+```
+
+Unemployment seems to generally decrease throughout the decade (accounting for the seasonal fluctuations). There is a large spike around the COVID months. This could account for the spike we see in crime in the summer months in 2020. We include unemployment as a factor in our models.
+
+**How does the number of violent crime fluctuate throughout the hour of day and day of the week?**
+
+![](crimes-day-hour.png)
+
+It appears that the early hours of the morning are only prone to more violent crime during the weekend, while violent crimes typically occur in the afternoon on weekdays. We want to account for this in our models.
+
+# Data Analysis, Model Building, and Interpretation
+
+## Generalized Linear Models
+
+We first attempted to understand how the different coefficients were affecting our response variable, the number of violent crimes per hour. We employed several generalized linear models:
+
+1) Poisson Regression
+2) Negative Binomial Regression
+3) Lasso Regression
+4) Zero-Inflated Poisson Regression
+
+The main linear model proceeds as follows:
+
+
 
 Main Model
 

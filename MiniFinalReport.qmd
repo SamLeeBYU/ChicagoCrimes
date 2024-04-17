@@ -291,41 +291,113 @@ We first attempted to understand how the different coefficients were affecting o
 3) Lasso Regression
 4) Zero-Inflated Poisson Regression
 
-The main linear model proceeds as follows:
+The main autoregressive linear model proceeds as follows:
 
+For a given hour ($h$), day ($d$), month ($m$), and year ($y$), we model the number of number of hourly violent crimes ($Y_{hdmy}$) as follows:
 
+$$
+(1a) \quad Y_{hdmy} = \beta_0+\beta_1\text{FullMoon}_{dmy}+\beta_2\text{Unemployment}_{my}+X_{hdmy}'\gamma+\text{Weather}_{hdmy}'\Omega
+$$
+$$
++\sum_{i=1}^{23}\eta_i\mathbb{1}(\text{Hour}_h=i)+\sum_{i=Mon}^{Sat}\delta_i\mathbb{1}(\text{Day}_d=i)+\sum_{i=Jan}^{Nov}\mu_i\mathbb{1}(\text{Month}_m=i)
+$$
+$$
++\sum_{i=1}^{23}\sum_{j=Mon}^{Sat}\xi_{6(i-1)+j}\mathbb{1}(\text{Hour}_h=i)\mathbb{1}(\text{Day}_d=j)+\sum_{i=1}^{24}\psi_iY_{(h-i)dmy}+\epsilon_{hdmy}
+$$
+$$
+(1b) \quad \mathbb{E}[\epsilon_{hdmy}|\mathbb{X}_{hdmy}]=0 \quad \forall h,d,m,y
+$$
 
-Main Model
+Where $\mathbb{X}_{hdmy}$ is the complete covariate matrix (including fixed effects and autoregressive lags). The $X$ matrix includes covariates such as holidays and other miscellaneous interactions that vary from model to model.
 
-$y \sim MVN(\textbf{X}\mathbf{\beta}, \sigma^2\textbf{R}({\phi},{\omega}))$, $\textbf{y} = \textbf{X}\mathbf{\beta} + \epsilon$, where $\epsilon \sim N(0,\sigma^2R({\phi},{\omega}))$
+However, to get better predictive power, as discussed previously, we decided to model the functional of $Y_{hdmy}$ more appropriately through a countwise regression. We found that a Zero-Inflated Poisson (ZIP) regression ultimately performed the best out of the four genderalized linear models we performed above. Hence, we generalized (1) to model both the mean ($\mathbb{E}[Y_{hdmy}|\mathbb{X}_{hdmy}]$) of the hourly number of violent crimes and the probability that no violent crimes would be committed during that specific hour (this is structurally equivalent to a ZIP regression model).
 
-$\textbf{y} = \begin{bmatrix} WHC_{1}\\ WHC_{2}\\ \vdots \\ WHC_{528} \end{bmatrix}$,
+Hence, we generalized (1) into the following ZIP regression model:
 
-$\textbf{X} = \begin{bmatrix} 1 & x_{11} & x_{12} \\ 1 & x_{21} & x_{22} \\ \vdots & \vdots & \vdots \\ 1 & x_{5281} & x_{5282} \end{bmatrix}$, $\boldsymbol{\beta}= \begin{bmatrix} \beta_{0} \\ \beta_{Yield} \\ \beta_{EC} \end{bmatrix}$,
+$$
+(2a) \quad Y_{hdmy} \sim ZIP(\lambda_{hdmy}, \pi)
+$$
+$$
+(2b) \quad \lambda_{hdmy} = exp\{\beta_0+\beta_1\text{FullMoon}_{dmy}+\beta_2\text{Unemployment}_{my}+X_{hdmy}'\gamma+\text{Weather}_{hdmy}'\Omega
+$$
+$$
++\sum_{i=1}^{23}\eta_i\mathbb{1}(\text{Hour}_h=i)+\sum_{i=Mon}^{Sat}\delta_i\mathbb{1}(\text{Day}_d=i)+\sum_{i=Jan}^{Nov}\mu_i\mathbb{1}(\text{Month}_m=i)
+$$
+$$
++\sum_{i=1}^{23}\sum_{j=Mon}^{Sat}\xi_{6(i-1)+j}\mathbb{1}(\text{Hour}_h=i)\mathbb{1}(\text{Day}_d=j)+\sum_{i=1}^{24}\psi_iY_{(h-i)dmy}\}
+$$
+Where $\pi$ is the probability that $0$ crimes occur during a given hour.
 
-$\textbf{R} = \begin{bmatrix} 1 & \rho(s_1,s_2) & \rho(s_1,s_3) & \dots & \rho(s_1,s_{528}) \\ \rho(s_2,s_1) & 1 & \rho(s_2,s_3) & \dots & \rho(s_2,s_{528}) \\ \vdots & \vdots & \ddots & 1 & \rho(s_{527},s_{528}) \\ \rho(s_{528},s_1) & \rho(s_{528},s_2) & \rho(s_{528},s_3) & \dots & 1\end{bmatrix}$, where $\rho(s_i, s_j) = exp\{-\frac{||s_i-s_j||}{\phi}\}$.
+Additionally, we used a penalized lasso poisson regression regression to determine which covariates to include in $\text{Weather}_{hdmy}$ and $X_{hdmy}$.
 
-Within our model, we have 5 parameters.
+Lasso Poisson Regression Models[^1]:
 
--   $\beta_0$ represents the intercept, which is the expected value when all other coefficients within our model are zero.\
+[^1]: Perhaps a bit of notational inconsistency here, but $t$ represents an individual observation in the data set here, which is equivalently a single observed hour ($h$) in a given day.
 
--   $\beta_{Yield} \text{ and } \beta_{EC}$ represent the estimated change in WHC when Yield and EC are increased by 1. They are the coefficients of our model.
+$$
+(3) \quad \underset{b_0, b}{argmin} \sum_{t=1}^n\left( y_{tdmy} - exp\{ b_0 + \text{Weather}_{tdmy}'b\}\right)^2+\alpha([1,..,1]'b)
+$$
+$$
+(4) \quad \underset{b_0, b}{argmin} \sum_{t=1}^n\left( y_{tdmy} - exp\{ b_0 + X_{tdmy}'b\}\right)^2+\lambda([1,..,1]'b)
+$$
 
--   $\sigma^2$ represents the unbiased maximum likelihood for the variance.
+Using K-fold CV ($k=10$), we used $\alpha=0.0003305944$, and $\lambda=0.0009574824$. With these hyperparameters, we used the lasso model to find the most important factors to yield a more parsimonious model. Based on the results of the lasso models, we ended omitting ``Apparent Temperature``, ``Wind Speed``, and ``Direct Solar Radiation`` out of the weather covariates. In the $X$ covariate matrix, we also omitted the ``Columbus Day`` dummy variable (we have included indicators for every federal holiday).
 
--   $\textbf{R}$ represents the correlation matrix between observations from the data, where we have chosen an exponential correlation function.
+Having these variables excluded from model (2), we estimated the parameters using maximum likelihood estimation (MLE).
 
--   ${\phi}$ represents the parameter used in the exponential correlation calculated from the data.
+The ZIP model achieved a MSE of 0.76. Here are the summary plots of the estimated coefficients[^2]:
 
--   ${\omega}$ represents the variance "nugget" to capture same-location variability.
+[^2]: The numerical coefficients were all standardized for relative interpretability.
 
-\[Can you add the model that we use and the parameters and stuff here\]
+```{=latex}
+\begin{figure}[htbp]
+\centering
+\begin{subfigure}[b]{0.4\textwidth}
+\includegraphics[width=\textwidth]{Sam/catepillar-plot-most-important.png}
+\caption{Coefficients with Largest Magnitudes}
+\label{fig:sub1}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.4\textwidth}
+\includegraphics[width=\textwidth]{Sam/catepillar-interest.png}
+\caption{Coefficients Omitting Time Fixed Effects}
+\label{fig:sub2}
+\end{subfigure}
+\caption{Estimated Parameter Coefficients of ZIP Model}
+\label{fig:whole}
+\end{figure}
+```
 
-#Predictive model
+As fortold by our EDA, temperature is strongly correlated with the propensity to commit violent crimes in Chicago. Interestingly, the most significant (non-fixed effect) is `New Year's Day`. This is the holiday where the most violent crimes are committed.
 
-#Implementation of at least four standard supervised machine learning models We tried a variety of model to get try to get better predictions and compare those results. Indeed, we fit a Random Forest model, Decision Tree, Gradient boosting and KNN model and already mentioned Poisson model.
+While visually showing how well the model predicts on all hours may be hard to show in a single plot, we selected a random sample (two weeks) to overlay both the predicted mean of violent crimes and a bootstrap predicted sample of the actual number of violent crimes (shaded in green) to simulate a 95% confidence interval.
 
-#Significant or innovative feature engineering
+```{=latex}
+\begin{figure}[htbp]
+\centering
+\begin{subfigure}[b]{0.4\textwidth}
+\includegraphics[width=\textwidth]{Sam/eda.png}
+\caption{The hourly distribution of violent crimes is (zero-inflated) Poisson-distributed}
+\label{fig:ViolentCrimes}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.4\textwidth}
+\includegraphics[width=\textwidth]{Sam/PredictiveAnalytics.png}
+\caption{Random sample overlaid with predicted mean and predicted bootstrapped 95\% confidence interval}
+\label{fig:Prediction}
+\end{subfigure}
+\caption{Visual predictive performance of ZIP model}
+\label{fig:whole}
+\end{figure}
+```
+
+This model explains the effects of the factors included in the model quite well, although the prediction is quite noisy. To achieve better prediction of violent crimes, we explore more flexible machine learning models.
+
+# Predictive model
+
+Implementation of at least four standard supervised machine learning models We tried a variety of model to get try to get better predictions and compare those results. Indeed, we fit a Random Forest model, Decision Tree, Gradient boosting and KNN model and already mentioned Poisson model.
+
+# Significant or innovative feature engineering
 
 Since we noticed that that time was an important factor, we considered to add generate more variables that can handle the seasonality presented in the data.
 
@@ -338,7 +410,7 @@ data['Day_Cos'] = np.cos(2 * np.pi * data['Day']/data['Date'].dt.days_in_month)
 
 This feature engineering lies in capturing temporal patterns in a way that is more suitable for machine learning models, like this Random Forest. By encoding months and days as cyclical features, the model can understand their cyclic nature and learn patterns effectively, such as monthly or daily seasonality which is present in the crime data because of weather and another factors.
 
-#An exploration of variable importance using SHAP
+# Exploration of variable importance using SHAP
 
 As we mentioned before, we used a Decision Tree to understand better the factors that impact the count of violent crime.
 

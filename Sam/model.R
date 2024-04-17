@@ -32,13 +32,23 @@ test.weather <- function(){
                                                            "hourly.wind_speed_10m"))
   X = as.matrix(model.data[weather.covariates] %>% dplyr::select(-hourly.is_day))
   X = apply(X, 2, standardize) %>% cbind(as.matrix(model.data[,c("hourly.is_day")]))
+  
   y = as.matrix(model.data$NumViolentCrimes)
+  
+  model.data$Holiday = ifelse(is.na(model.data$Holiday), "Base", model.data$Holiday)
+  X.holiday = model.matrix(lm(y ~ 0 + model.data$Holiday))
   
   model.zeroinf <- zeroinfl(y ~ X | 1, dist = "poisson", link = "logit")
   summary(model.zeroinf)
   coef(model.zeroinf) %>% abs() %>% sort()
   
   lasso.pois <- cv.glmnet(X, y, family = "poisson", alpha = 1)
+  
+  lasso.pois2 <- cv.glmnet(X.holiday, y, family = "poisson", alpha = 1)
+  
+  alpha.star <- lasso.pois2$lambda.min
+  alpha.star
+  
   lambda.star <- lasso.pois$lambda.min
   lambda.star
   

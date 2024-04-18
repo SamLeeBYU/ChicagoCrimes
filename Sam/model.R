@@ -5,6 +5,11 @@ library(pscl)
 library(rstanarm)
 library(corrplot)
 library(arm)
+library(caret)
+
+source("kfold.R")
+
+ctrl <- trainControl(method = "cv", number = 10)
 
 standardize <- function(v){
   (v-mean(v, na.rm=T))/sd(v, na.rm=T)
@@ -176,6 +181,45 @@ run_mle <- function(){
   
   #Zero inflated poisson with Maximum Likelihood
   model.zeroinf <- zeroinfl(zero.infl.model, dist="poisson", data=model.data)
+  
+  
+  # folds <- k.fold.split(model.data, k=10, seed=486)
+  # 
+  # mses <- c()
+  # i = 1
+  # for(fold in folds){
+  #   print(i)
+  #   fit <- zeroinfl(zero.infl.model, dist="poisson", data=fold)
+  #   mse <- mean(fit$residuals^2, na.rm=T)
+  #   mses <- c(mses, mse)
+  #   i = i+1
+  # }
+  
+  t.s <- train.split(model.data, seed=486)
+  train <- t.s[[1]]
+  test <- t.s[[2]]
+  
+  model.zeroinf.train <- zeroinfl(zero.infl.model, dist="poisson", data=train)
+  model.zeroinf.test <- zeroinfl(zero.infl.model, dist="poisson", data=test)
+  
+  X.train = model.matrix(model.zeroinf.train); X.p.train = rep(1, nrow(X.train))
+  X.test = model.matrix(model.zeroinf.test); X.p.test = rep(1, nrow(X.test))
+  
+  betas = model.zeroinf.train$coefficients$count %>% as.matrix()
+  betas.p = model.zeroinf.train$coefficients$zero %>% as.matrix()
+  yhat.zeroinf.train <- zeroinfl.predict(X.p.train, X.train, betas.p, betas)
+  yhat.zeroinf.test <- zeroinfl.predict(X.p.test, X.test, betas.p, betas)
+  
+  mean((model.zeroinf.train$y-yhat.zeroinf.train)^2)
+  #Out of sample MSE
+  mean((model.zeroinf.test$y-yhat.zeroinf.test)^2)
+  
+  
+  
+  
+  
+  mse.zeroinfl <- mean(model.zeroinf$residuals^2, na.rm=T)
+  
   model.pois <- glm(model, family=poisson(link="log"), data=model.data)
   predictions = predict(model.pois, type="response", se.fit = T)
   #model.pois.pred <- confint(model.pois, interval="prediction")
@@ -185,7 +229,7 @@ run_mle <- function(){
   X = model.matrix(model.zeroinf); X.p = rep(1, nrow(X))
   betas = model.zeroinf$coefficients$count %>% as.matrix()
   betas.p = model.zeroinf$coefficients$zero %>% as.matrix()
-
+  
   yhat.zeroinf <- zeroinfl.predict(X.p, X, betas.p, betas)
   model.data$yhat.zeroinf <- c(rep(NA_real_, 24), model.zeroinf$fitted.values)
   
@@ -243,7 +287,6 @@ run_mle <- function(){
   
   # model.data %>% dplyr::select(NumViolentCrimes, yhat.zeroinf) %>% View()
   
-  mse.zeroinfl <- mean(model.zeroinf$residuals^2, na.rm=T)
   
   #Bayesian poisson model (Doesn't converge! Don't run!)
   # model.poisson.bayes <- stan_glm(model, family="poisson", data=model.data)

@@ -335,18 +335,19 @@ Lasso Poisson Regression Models[^1]:
 [^1]: Perhaps a bit of notational inconsistency here, but $t$ represents an individual observation in the data set here, which is equivalently a single observed hour ($h$) in a given day.
 
 $$
-(3) \quad \underset{b_0, b}{argmin} \sum_{t=1}^n\left( y_{tdmy} - exp\{ b_0 + \text{Weather}_{tdmy}'b\}\right)^2+\alpha([1,..,1]'b)
+(3) \quad \underset{b_0, b}{argmin} \sum_{t=1}^n\left( y_{tdmy} - exp\{ b_0 + \text{Weather}_{tdmy}'b\}\right)^2+\alpha([1,...,1]'|b|)
 $$
 $$
-(4) \quad \underset{b_0, b}{argmin} \sum_{t=1}^n\left( y_{tdmy} - exp\{ b_0 + X_{tdmy}'b\}\right)^2+\lambda([1,..,1]'b)
+(4) \quad \underset{b_0, b}{argmin} \sum_{t=1}^n\left( y_{tdmy} - exp\{ b_0 + X_{tdmy}'b\}\right)^2+\lambda([1,...,1]'|b|)
 $$
 
-Using K-fold CV ($k=10$), we used $\alpha=0.0003305944$, and $\lambda=0.0009574824$. With these hyperparameters, we used the lasso model to find the most important factors to yield a more parsimonious model. Based on the results of the lasso models, we ended omitting ``Apparent Temperature``, ``Wind Speed``, and ``Direct Solar Radiation`` out of the weather covariates. In the $X$ covariate matrix, we also omitted the ``Columbus Day`` dummy variable (we have included indicators for every federal holiday).
+Using K-fold CV ($k=10$), we used $\alpha=0.0003305944$, and $\lambda=0.0009574824$. With these hyper parameters, we used the lasso model to find the most important factors to yield a more parsimonious model. Based on the results of the lasso models, we ended omitting ``Apparent Temperature``, ``Wind Speed``, and ``Direct Solar Radiation`` out of the weather covariates. In the $X$ covariate matrix, we also omitted the ``Columbus Day`` dummy variable (we have included indicators for every federal holiday).
 
 Having these variables excluded from model (2), we estimated the parameters using maximum likelihood estimation (MLE).
 
-The ZIP model achieved a MSE of 0.76. Here are the summary plots of the estimated coefficients[^2]:
+The ZIP model achieved an in-sample MSE of `0.7667242`, and remarkably, an out of sample MSE of `0.7597959`[^4]. Here are the summary plots of the estimated coefficients[^2]:
 
+[^4]: This was based on a random test sample of 20% of the original data. Note: Only in-sample and out-of-sample MSE validation was performed. These are the MSE statistics from that test.
 [^2]: The numerical coefficients were all standardized for relative interpretability.
 
 ```{=latex}
@@ -368,20 +369,22 @@ The ZIP model achieved a MSE of 0.76. Here are the summary plots of the estimate
 \end{figure}
 ```
 
-As fortold by our EDA, temperature is strongly correlated with the propensity to commit violent crimes in Chicago. Interestingly, the most significant (non-fixed effect) is `New Year's Day`. This is the holiday where the most violent crimes are committed.
+As foretold by our EDA, temperature is strongly correlated with the positive propensity to commit violent crimes in Chicago. Interestingly, the most significant (non-fixed effect) is `New Year's Day`. This is the holiday where the most violent crimes are committed. Interestingly enough, the estimated coefficient for unemployment is significantly negative, implying that when the unemployment rate in Chicago is low, the number of violent crimes decrease in District 11[^0].
+
+[^0]: There may be several explanations as to why this is. (1) The economic literature actually supports this. Although property crimes typically increase when unemployment increase, only weak effects have been linked to unemployment and violent crimes. (2) This coefficient doesn't take into account how violent crime changes in the nearby district. The assumption we are making here is that the unemployment rate in District 11 is proportional to the unemployment rate in Chicago.
 
 While visually showing how well the model predicts on all hours may be hard to show in a single plot, we selected a random sample (two weeks) to overlay both the predicted mean of violent crimes and a bootstrap predicted sample of the actual number of violent crimes (shaded in green) to simulate a 95% confidence interval.
 
 ```{=latex}
 \begin{figure}[htbp]
 \centering
-\begin{subfigure}[b]{0.4\textwidth}
+\begin{subfigure}[b]{0.45\textwidth}
 \includegraphics[width=\textwidth]{Sam/eda.png}
 \caption{The hourly distribution of violent crimes is (zero-inflated) Poisson-distributed}
 \label{fig:ViolentCrimes}
 \end{subfigure}
 \hfill
-\begin{subfigure}[b]{0.4\textwidth}
+\begin{subfigure}[b]{0.45\textwidth}
 \includegraphics[width=\textwidth]{Sam/PredictiveAnalytics.png}
 \caption{Random sample overlaid with predicted mean and predicted bootstrapped 95\% confidence interval}
 \label{fig:Prediction}
@@ -393,13 +396,18 @@ While visually showing how well the model predicts on all hours may be hard to s
 
 This model explains the effects of the factors included in the model quite well, although the prediction is quite noisy. To achieve better prediction of violent crimes, we explore more flexible machine learning models.
 
-# Predictive model
+# Predictive Models
 
-Implementation of at least four standard supervised machine learning models We tried a variety of model to get try to get better predictions and compare those results. Indeed, we fit a Random Forest model, Decision Tree, Gradient boosting and KNN model and already mentioned Poisson model.
+We experimented with a variety of machine learning models to identify the best approach for predicting violent crime counts. These models included:
 
-# Significant or innovative feature engineering
+- Random Forest Regression: This ensemble method builds multiple decision trees and aggregates their predictions for improved accuracy.
+- Decision Tree Regression: This model splits the data based on features to create a tree-like structure for prediction.
+- Gradient Boosting Regression: This technique iteratively builds decision trees, focusing on improving predictions for previously poorly classified examples.
+- K-Nearest Neighbors (KNN) Regression: This method predicts values by averaging the values of the k nearest neighbors in the training data.
 
-Since we noticed that that time was an important factor, we considered to add generate more variables that can handle the seasonality presented in the data.
+# Significant and Innovative Feature Engineering
+
+Since we noticed that that time was an important factor, To capture seasonality more effectively for machine learning models, we introduced cyclical features for month and day
 
 ```{python,echo=TRUE, eval=FALSE}
 data['Month_Sin'] = np.sin(2 * np.pi * data['Month']/12)
@@ -408,11 +416,11 @@ data['Day_Sin'] = np.sin(2 * np.pi * data['Day']/data['Date'].dt.days_in_month)
 data['Day_Cos'] = np.cos(2 * np.pi * data['Day']/data['Date'].dt.days_in_month)
 ```
 
-This feature engineering lies in capturing temporal patterns in a way that is more suitable for machine learning models, like this Random Forest. By encoding months and days as cyclical features, the model can understand their cyclic nature and learn patterns effectively, such as monthly or daily seasonality which is present in the crime data because of weather and another factors.
+This feature engineering captures temporal patterns in a way that is more suitable for machine learning models, such as for random forest models. By encoding months and days as cyclical features, the model can understand their cyclic nature and learn patterns effectively, such as monthly or daily seasonality.
 
-# Exploration of variable importance using SHAP
+# Variable Importance Using SHAP
 
-As we mentioned before, we used a Decision Tree to understand better the factors that impact the count of violent crime.
+As we mentioned, we used decision trees to understand the factors that impact the frequency of violent crime.
 
 ```{python, echo=TRUE, eval=FALSE}
 rf_model = RandomForestRegressor(n_estimators=20, random_state=42)
@@ -427,13 +435,16 @@ feature_importances = rf_model.feature_importances_
 feature_importance_map = dict(zip(X.columns, feature_importances))
 
 # Sort the features by importance
-sorted_features = sorted(feature_importance_map.items(), key=lambda x: x[1], reverse=True)
+sorted_features = sorted(feature_importance_map.items(), key=lambda x: x[1],
+  reverse=True)
 
 # Extract top 25 features
 top_features = sorted_features[:25]
 ```
 
-![Image Description](output.png) We kind of expecting that that temperature will be an important factor, so we will check with SHAP as well to understand the impact of features on model predictions.
+![Image Description](output.png)
+
+To corroborate the effect that we saw from the generalized linear regression models, we used SHAP as well to understand the impact of the features on our model predictions. We anticipated that temperature would be an important factor just as we saw previously.
 
 ```{python, echo=TRUE, eval=FALSE}
 #Fitting the model
@@ -446,9 +457,13 @@ shap_values = explainer.shap_values(X_test[:100])
 shap.summary_plot(shap_values, features=X_test[:100], feature_names=X_train.columns)
 ```
 
-![Image Description](output2.png) In summary, thanks to the SHAP values analysis, it seems that the model seems to be influenced significantly by perceived temperature (feelslike) and actual temperature measures, with time-related features also playing a key role. Lower on the importance scale are some other weather-related features and atmospheric conditions.
+![Image Description](output2.png)
 
-#Cluster analysis OR anomaly detection Also we wanted to apply cluster analysis to understand patterns or groups in how these factors correlate with crime rates
+In summary, in accordance with the SHAP values analysis, it seems that the model seems to be influenced significantly by perceived temperature (`feelslike`) and actual temperature measures, with time-related features also playing a key role. Lower on the importance scale are some other weather-related features and atmospheric conditions.
+
+# Cluster Analysis and Anomaly Detection
+
+We wanted to apply cluster analysis to understand patterns or groups in how these factors correlated with crime rates.
 
 ```{python, echo=TRUE, eval=FALSE}
 #Starting clustering analysis
@@ -474,7 +489,9 @@ plt.tight_layout()
 plt.show()
 ```
 
-![Image Description](output3.png) It seems that they're 3 main clusters in the data. This is confirm with the "elbow method" technique, since around 3 or 4 it seems to be the place where the rate of decrease in WCSS slows down significantly.
+![Image Description](output3.png)
+
+It seems that they're 3 main clusters in the data. This is confirmed with the "elbow method" technique, since it seems to be around 3 or 4 where the rate of decrease in WCSS slows down significantly.
 
 ```{python, echo=TRUE, eval=FALSE}
 # Calculating WCSS by K number of clusters for plot
@@ -490,11 +507,14 @@ plt.xlabel('Number of Clusters, K')
 plt.ylabel('WCSS')
 ```
 
-![Image Description](output4.png) After defining the number of clusters, we can start analyzing the major factors with these 3 clusters.
+![Image Description](output4.png)
+
+After defining the number of clusters, we can start analyzing the major factors with these 3 clusters.
 
 ```{python, echo=TRUE, eval=FALSE}
 #Selecting factors to see
-plot_df = pd.DataFrame(X[['feelslike', 'Year', 'YrMon', 'Date', 'tempmax', 'IsWeekend', 'feelslikemax', 'temp', 'DayOfYear', 'WeekOfYear']])
+plot_df = pd.DataFrame(X[['feelslike', 'Year', 'YrMon', 'Date', 'tempmax',
+  'IsWeekend', 'feelslikemax', 'temp', 'DayOfYear', 'WeekOfYear']])
 
 #Plotting
 plot_df['clusters'] = y_kmeansf Clusters, K')
@@ -502,4 +522,25 @@ plt.ylabel('WCSS')
 sns.pairplot(plot_df, hue='clusters', palette='Dark2')
 ```
 
-![Image Description](output5.png) From the clustering analysis, we can learn that the feature relationships, distribution, and seasonality.
+![Image Description](output5.png)
+
+From our clustering analysis, we learn about the feature relationships, distribution, and seasonality.
+
+# Conclusion
+
+Our investigation into the factors influencing violent crime rates in Chicago's District 11 from 2010 to 2024 employed various machine learning models. Experimentation with generalized linear regression models, Random Forest Regression, Decision Tree Regression, and K-Nearest Neighbors Regression revealed that Random Forest Regression yielded the most accurate predictions for violent crime counts.
+
+The incorporation of cyclical features for month and day significantly enhanced the model's ability to capture seasonal patterns that might be linked to weather or other external factors. Examining feature importance through Random Forest analysis validated our initial hypothesis regarding the significant influence of temperature (both perceived and actual) on crime rates. Time-based features were also identified as impactful.
+
+Cluster analysis provided further insights, revealing three distinct data clusters that potentially represent unique underlying dynamics influencing crime rates. Pair plots across these clusters suggested variations in feature distribution and seasonality.
+
+## Future Exploration
+
+While this study offers valuable insights, opportunities for further exploration exist:
+
+ - Model Exploration: Our focus was on common regression models. Investigating more advanced techniques, such as deep learning or geospatial analysis, could potentially improve prediction accuracy and uncover more intricate relationships within the data.
+- Feature Engineering: Investigating additional features, such as further social or economic indicators, could provide a more comprehensive understanding of the factors influencing crime rates.
+- Random Forest Model Optimization: Hyper parameter optimization within the chosen Random Forest model could potentially enhance its performance.
+- Predictive Policing Applications: While this study focused on understanding the factors influencing crime, the insights gained could be used to develop a framework for predictive policing applications. However, careful consideration would need to be given to ethical considerations and potential biases within the data.
+
+By pursuing these areas, we can gain a deeper understanding of the complexities surrounding violent crime and develop more effective prevention strategies.

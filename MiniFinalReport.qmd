@@ -405,6 +405,40 @@ We experimented with a variety of machine learning models to identify the best a
 - Gradient Boosting Regression: This technique iteratively builds decision trees, focusing on improving predictions for previously poorly classified examples.
 - K-Nearest Neighbors (KNN) Regression: This method predicts values by averaging the values of the k nearest neighbors in the training data.
 
+For this stage of the predictive modeling process, based on the feedback from the case study competition judges, we decided to aggregate the response variable by day. Hence, the evaluation metrics in the prediction models and the generalized linear models are not comparable.
+
+## Predictive Performance of Each Model
+
+**KNN**
+
+```{python,echo=TRUE, eval=FALSE}
+knn_reg = KNeighborsRegressor(n_neighbors=20)
+knn_reg.fit(X_train_scaled, y_train)
+```
+
+- Mean Absolute Error: 3.495668789808917
+- Mean Squared Error: 18.586433121019112
+- Root Mean Squared Error: 4.311198571281438
+- R-squared: 0.018065556289428297
+
+![Image Description](output6.png)
+
+**Random Forest**
+
+- Mean Absolute Error: 3.254050955414013
+- Mean Squared Error: 16.357082547770705
+- Root Mean Squared Error: 4.044389020330599
+- R-squared: 0.1358437281809961
+
+![Image Description](output7.png)
+
+**Gradient boosting**
+
+- Mean Absolute Error: 3.2315556864642456
+- Mean Squared Error: 16.022146503614472
+- Root Mean Squared Error: 4.002767355669634
+- R-squared: 0.15353863693813885
+
 # Significant and Innovative Feature Engineering
 
 Since we noticed that that time was an important factor, To capture seasonality more effectively for machine learning models, we introduced cyclical features for month and day

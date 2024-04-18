@@ -46,6 +46,8 @@ This contains daily weather data. This data was obtained from <https://www.visua
 
 This is the API call from another weather database that we resorted to that provided hourly weather data. We used <https://open-meteo.com/>.
 
+Note: We don't have raw crimes data (*Crimes.csv*) on this repo because the file was too large to upload. The data was obtained from <https://data.cityofchicago.org/Public-Safety/Crimes-2022/9hwr-2zxp/data>. 
+
 ---
 
 # Scripts
@@ -74,7 +76,7 @@ A script built to perform cluster analysis and K-means on our data.
 
 This script runs a regression to predict the number of daily violent crimes using K-Nearest-Neighbors (KNN) regression.
 
-#### [testing_random_forest.ipynb]
+#### [testing_random_forest.ipynb](Scripts/testing_random_forest.ipynb)
 
 This script runs a random forest model to predict the number of violent crimes.
 

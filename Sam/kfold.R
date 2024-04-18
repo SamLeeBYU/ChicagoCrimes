@@ -1,3 +1,8 @@
+#Author: Sam Lee
+#04/17/2024
+
+#This is a custom function to prepare data for k-fold CV in R
+
 k.fold.split <- function(data, k = 5, seed = NULL) {
 
   if (!is.null(seed)) set.seed(seed)
@@ -33,10 +38,3 @@ train.split <- function(data, test=0.2, seed=NULL){
     list(data[index,], data[-index,])
   )
 }
-
-# test <- data.frame(
-#   x = 1:30,
-#   y = rnorm(30)
-# )
-# 
-# k.fold.split(test, k=10, seed=486)

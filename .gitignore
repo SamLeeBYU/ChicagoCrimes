@@ -6,3 +6,7 @@ Sam/maps_api.txt
 Sam/Data/Crimes.csv
 .Rproj.user
 Sam/model_zeroinf.RData
+
+.Rhistory
+.DS_Store
+Data/Crimes.csv

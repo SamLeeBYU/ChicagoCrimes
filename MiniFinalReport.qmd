@@ -23,7 +23,7 @@ require(pscl)
 require(boot)
 
 #A package Sam made to report summary statistics
-source("Sam/sum_stats.R")
+source("Scripts/sum_stats.R")
 ```
 
 # Introduction
@@ -67,19 +67,19 @@ tryCatch({
   maps.api.key = read_file("Sam/maps_api.txt")
 })
 
-crimes <- read_csv("Sam/Data/Crimes.csv")
+crimes <- read_csv("Data/Crimes.csv")
 crimes$DateTime <- mdy_hms(crimes$Date)
 crimes$Date <- as.Date(crimes$DateTime)
 crimes$hour <- hour(crimes$DateTime)
 
-moons <- read_csv("Sam/Data/full_moon.csv") %>%
+moons <- read_csv("Data/full_moon.csv") %>%
   mutate(Date = dmy(FullMoonDates))
 
-holidays <- read_csv("Sam/Data/holidays.csv") %>%
+holidays <- read_csv("Data/holidays.csv") %>%
   mutate(Date = ymd(Date))
 
 #Weather Data from API
-weather.data <- fromJSON("Sam/Data/weather.json")["hourly"] %>% 
+weather.data <- fromJSON("Data/weather.json")["hourly"] %>% 
   as.data.frame()
 weather.data$hourly.time = weather.data$hourly.time %>% 
   str_replace("T", " ")
@@ -152,7 +152,7 @@ crimes.cleaned <- crimes.cleaned %>% group_by(Violent, Date, hour) %>%
   ) %>% ungroup()
 
 #Merge in unemployment data from BLS
-unem <- read_csv("Sam/Data/chicago-unemployment.csv") %>%
+unem <- read_csv("Data/chicago-unemployment.csv") %>%
   dplyr::select(Year, Label, Value) %>%
   mutate(
     Date = ym(Label),
@@ -276,7 +276,7 @@ Unemployment seems to generally decrease throughout the decade (accounting for t
 
 **How does the number of violent crime fluctuate throughout the hour of day and day of the week?**
 
-![](crimes-day-hour.png)
+![](Report Images/crimes-day-hour.png)
 
 It appears that the early hours of the morning are only prone to more violent crime during the weekend, while violent crimes typically occur in the afternoon on weekdays. We want to account for this in our models.
 
@@ -354,13 +354,13 @@ The ZIP model achieved an in-sample MSE of `0.7667242`, and remarkably, an out o
 \begin{figure}[htbp]
 \centering
 \begin{subfigure}[b]{0.4\textwidth}
-\includegraphics[width=\textwidth]{Sam/catepillar-plot-most-important.png}
+\includegraphics[width=\textwidth]{Report Images//catepillar-plot-most-important.png}
 \caption{Coefficients with Largest Magnitudes}
 \label{fig:sub1}
 \end{subfigure}
 \hfill
 \begin{subfigure}[b]{0.4\textwidth}
-\includegraphics[width=\textwidth]{Sam/catepillar-interest.png}
+\includegraphics[width=\textwidth]{Report Images//catepillar-interest.png}
 \caption{Coefficients Omitting Time Fixed Effects}
 \label{fig:sub2}
 \end{subfigure}
@@ -379,13 +379,13 @@ While visually showing how well the model predicts on all hours may be hard to s
 \begin{figure}[htbp]
 \centering
 \begin{subfigure}[b]{0.45\textwidth}
-\includegraphics[width=\textwidth]{Sam/eda.png}
+\includegraphics[width=\textwidth]{Report Images//eda.png}
 \caption{The hourly distribution of violent crimes is (zero-inflated) Poisson-distributed}
 \label{fig:ViolentCrimes}
 \end{subfigure}
 \hfill
 \begin{subfigure}[b]{0.45\textwidth}
-\includegraphics[width=\textwidth]{Sam/PredictiveAnalytics.png}
+\includegraphics[width=\textwidth]{Report Images//PredictiveAnalytics.png}
 \caption{Random sample overlaid with predicted mean and predicted bootstrapped 95\% confidence interval}
 \label{fig:Prediction}
 \end{subfigure}
@@ -421,7 +421,7 @@ knn_reg.fit(X_train_scaled, y_train)
 - Root Mean Squared Error: 4.311198571281438
 - R-squared: 0.018065556289428297
 
-![Image Description](output6.png)
+![Image Description](Report Images/output6.png)
 
 **Random Forest**
 
@@ -430,7 +430,7 @@ knn_reg.fit(X_train_scaled, y_train)
 - Root Mean Squared Error: 4.044389020330599
 - R-squared: 0.1358437281809961
 
-![Image Description](output7.png)
+![Image Description](Report Images/output7.png)
 
 **Gradient boosting**
 
@@ -476,7 +476,7 @@ sorted_features = sorted(feature_importance_map.items(), key=lambda x: x[1],
 top_features = sorted_features[:25]
 ```
 
-![Image Description](output.png)
+![Image Description](Report Images/output.png)
 
 To corroborate the effect that we saw from the generalized linear regression models, we used SHAP as well to understand the impact of the features on our model predictions. We anticipated that temperature would be an important factor just as we saw previously.
 
@@ -491,7 +491,7 @@ shap_values = explainer.shap_values(X_test[:100])
 shap.summary_plot(shap_values, features=X_test[:100], feature_names=X_train.columns)
 ```
 
-![Image Description](output2.png)
+![Image Description](Report Images/output2.png)
 
 In summary, in accordance with the SHAP values analysis, it seems that the model seems to be influenced significantly by perceived temperature (`feelslike`) and actual temperature measures, with time-related features also playing a key role. Lower on the importance scale are some other weather-related features and atmospheric conditions.
 
@@ -523,7 +523,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-![Image Description](output3.png)
+![Image Description](Report Images/output3.png)
 
 It seems that they're 3 main clusters in the data. This is confirmed with the "elbow method" technique, since it seems to be around 3 or 4 where the rate of decrease in WCSS slows down significantly.
 
@@ -541,7 +541,7 @@ plt.xlabel('Number of Clusters, K')
 plt.ylabel('WCSS')
 ```
 
-![Image Description](output4.png)
+![Image Description](Report Images/output4.png)
 
 After defining the number of clusters, we can start analyzing the major factors with these 3 clusters.
 
@@ -556,7 +556,7 @@ plt.ylabel('WCSS')
 sns.pairplot(plot_df, hue='clusters', palette='Dark2')
 ```
 
-![Image Description](output5.png)
+![Image Description](Report Images/output5.png)
 
 From our clustering analysis, we learn about the feature relationships, distribution, and seasonality.
 
